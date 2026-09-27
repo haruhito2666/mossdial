@@ -1,0 +1,120 @@
+# Gradle / Kotlin
+.gradle/
+.kotlin/
+build/
+local.properties
+**/local.properties
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store
+**/.DS_Store
+
+# Native / C++
+**/.cxx/
+**/.externalNativeBuild/
+**/CMakeUserPresets.json
+**/cmake-build-*/
+*.so
+*.o
+*.a
+
+# Rust build outputs
+**/rust/target/
+**/rust/out/
+
+# Vendored llama.cpp build inputs
+/mossdial/app/src/main/cpp/third_party/llama.cpp/.devops/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/.github/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/app/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/benches/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ci/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/common/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/conversion/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/docs/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/examples/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/gguf-py/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/gradle/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/grammars/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/media/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/models/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/pocs/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/requirements/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/scripts/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/skills/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/tests/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/tools/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/vendor/cpp-httplib/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/gradlew*
+/mossdial/app/src/main/cpp/third_party/llama.cpp/AGENTS.md
+/mossdial/app/src/main/cpp/third_party/llama.cpp/CLAUDE.md
+/mossdial/app/src/main/cpp/third_party/llama.cpp/CONTRIBUTING.md
+/mossdial/app/src/main/cpp/third_party/llama.cpp/README.md
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-blas/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-cann/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-cuda/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-et/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-hexagon/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-hip/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-metal/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-musa/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-opencl/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-openvino/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-rpc/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-sycl/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-virtgpu/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-vulkan/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-webgpu/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-zdnn/
+/mossdial/app/src/main/cpp/third_party/llama.cpp/ggml/src/ggml-zendnn/
+
+# Internal planning documents
+/MOSSDIAL_PLAN.md
+/MOSSDIAL_ROADMAP.md
+
+# Local model weights and adapter artifacts
+*.gguf
+*.onnx
+*.safetensors
+*.pt
+*.pth
+*.bin
+*.adapter.json
+*.onnx.json
+# WordPiece vocabularies belong beside their model in the app-private model
+# directory, never in the repository
+vocab.txt
+*.vocab.txt
+
+# Keystores, certificates, and local secrets — never commit
+**/keystore/
+*.keystore
+*.jks
+*.p12
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+secrets.properties
+local_secrets.properties
+
+# APKs / AABs
+*.apk
+*.aab
+*.ap_
+*.hprof
+
+# Local databases, captures, and logs
+*.db
+*.sqlite
+*.sqlite3
+captures/
+*.log
+
+# Editor and OS metadata
+.vscode/
+*.swp
+*.swo
+

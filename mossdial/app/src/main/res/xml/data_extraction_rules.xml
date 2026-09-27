@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Nothing this app stores is worth restoring onto another device, and some of it cannot be: the
+    TLS private key lives in the platform keystore, which never leaves the device that made it, so a
+    restored certificate would match no key. Cloud backup and device transfer are therefore both
+    off, which is what android:allowBackup="false" already says for older releases.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

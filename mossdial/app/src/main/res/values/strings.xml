@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mossdial</string>
+    <string name="server_channel_name">Web server</string>
+    <string name="server_channel_description">Shown while this device hosts a website</string>
+
+    <string name="server_action_start">Start</string>
+    <string name="server_action_stop">Stop</string>
+    <string name="server_notification_starting">Starting the server…</string>
+    <string name="server_notification_running">Serving on port %1$d · %2$s</string>
+    <string name="server_notification_stopped">The server is stopped</string>
+    <string name="server_notification_failed">The server could not start</string>
+    <string name="server_notification_failed_title">Mossdial could not start</string>
+
+    <string name="binding_loopback">this device only</string>
+    <string name="binding_lan">local network</string>
+    <string name="scheme_http">HTTP</string>
+    <string name="scheme_https">HTTPS</string>
+
+    <string name="widget_label">Mossdial server</string>
+    <string name="widget_status_offline">Not running</string>
+    <string name="widget_status_starting">Starting…</string>
+    <string name="widget_status_online">Running on port %1$d</string>
+    <string name="widget_status_failed">Could not start</string>
+    <string name="widget_tunnel_connected">tunnel connected</string>
+    <string name="widget_tunnel_starting">tunnel starting</string>
+    <string name="widget_description">See the local web server status and start or stop it.</string>
+</resources>
