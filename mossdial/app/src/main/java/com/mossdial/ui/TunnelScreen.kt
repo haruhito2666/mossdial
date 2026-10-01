@@ -112,6 +112,12 @@ fun TunnelScreen(modifier: Modifier = Modifier) {
                 "stored encrypted under a key held by the Android Keystore and is never written to the log.",
             style = MaterialTheme.typography.bodySmall
         )
+        Text(
+            "A remotely-managed tunnel is configured in your Cloudflare dashboard, not here. Map " +
+                "only this device's site port there. The local AI API is on a different port and " +
+                "publishing it would put a model on the public internet behind one token.",
+            style = MaterialTheme.typography.bodySmall
+        )
         Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.padding(18.dp),
