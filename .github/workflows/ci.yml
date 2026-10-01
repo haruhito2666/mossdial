@@ -16,14 +16,55 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+
+      # The NDK and CMake are not optional: the llama.cpp runtime is compiled from the vendored
+      # sources during the build, and the version here has to match ndkVersion and the cmake version
+      # in app/build.gradle.kts. Without them :app:assembleDebug fails at the native build step
+      # rather than at anything to do with the code.
       - name: Install Android packages
-        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-      - name: Verify Android project
-        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+        run: |
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" \
+                    "ndk;27.0.12077973" "cmake;3.22.1"
+
+      - name: Verify the published file set
+        # Catches a model, vocabulary, keystore or build output that reached the index, and confirms
+        # the internal planning documents are still ignored.
+        run: |
+          set -euo pipefail
+          cd ..
+          files=$(git add -An --dry-run . | wc -l | tr -d ' ')
+          echo "$files files would be published"
+          if git add -An --dry-run . | grep -E ' (app/build/|.*/build/)|\.gguf$|\.onnx$|vocab\.txt$|keystore/|local\.properties$|\.apk$|\.aab$'; then
+            echo "A build artifact, model, or secret is in the way of publishing" >&2
+            exit 1
+          fi
+          if git ls-files --error-unmatch MOSSDIAL_PLAN.md >/dev/null 2>&1; then
+            echo "The internal plan document is tracked but should be ignored" >&2
+            exit 1
+          fi
+
+      # assembleRelease is in this list deliberately. Minification is where the two third-party
+      # runtimes can be stripped, since neither ships consumer rules, and a stripped class fails on
+      # a device rather than here. This catches the build failing; it does not catch the runtime
+      # failure, which is what the device checklist in RELEASING.md is for.
+      - name: Build, test and lint
+        run: |
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease \
+                    :app:assembleAndroidTest :app:lintDebug :app:lintVitalRelease
+
+      - name: Upload the debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mossdial-debug
+          path: mossdial/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
