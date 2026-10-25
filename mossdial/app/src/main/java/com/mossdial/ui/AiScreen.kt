@@ -6,20 +6,31 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Delete
+
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -33,9 +44,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mossdial.ai.AiController
 import com.mossdial.ai.AiControllerRegistry
@@ -47,6 +58,25 @@ import com.mossdial.aiapi.AiApiToken
 import com.mossdial.data.AiApiSettings
 import com.mossdial.data.ServerSettingsRules
 import com.mossdial.data.StoredModel
+import com.mossdial.ui.components.ButtonContent
+import com.mossdial.ui.components.ButtonRow
+import com.mossdial.ui.components.ChipRow
+import com.mossdial.ui.components.EmptyState
+import com.mossdial.ui.components.FieldLabel
+import com.mossdial.ui.components.LabeledValue
+import com.mossdial.ui.components.Notice
+import com.mossdial.ui.components.RowDivider
+import com.mossdial.ui.components.PrimaryButton
+import com.mossdial.ui.components.SecondaryButton
+import com.mossdial.ui.components.SectionCard
+import com.mossdial.ui.components.SectionColumn
+import com.mossdial.ui.components.SectionHeading
+import com.mossdial.ui.components.StatusPill
+import com.mossdial.ui.components.StatusTone
+import com.mossdial.ui.components.SupportingText
+import com.mossdial.ui.components.SwitchRow
+import com.mossdial.ui.components.screenContentPadding
+import com.mossdial.ui.theme.Spacing
 
 private val CONTEXT_CHOICES = listOf(512, 1024, 2048, 4096, 8192)
 private val TOKEN_CHOICES = listOf(64, 128, 256, 512)
@@ -55,8 +85,19 @@ private val TEMPERATURE_CHOICES = listOf(0.0f, 0.2f, 0.5f, 0.7f, 1.0f)
 /** What the embedding field accepts, matching the tokenizer's own bound. */
 private const val MAX_EMBEDDING_INPUT = 64 * 1024
 
+/**
+ * On-device models and the API that exposes them.
+ *
+ * This screen was one long scroll of five cards with no hierarchy, and every one of them repeated
+ * the same heading-and-value pattern. It is now a lazy column of labelled sections, so the screen
+ * is built once rather than composed of everything at once, and each section states what it is for
+ * before showing its controls.
+ */
 @Composable
-fun AiScreen(modifier: Modifier = Modifier) {
+fun AiScreen(
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp)
+) {
     val context = LocalContext.current
     val controller = remember { AiController.forContext(context) }
     DisposableEffect(controller) {
@@ -83,122 +124,149 @@ fun AiScreen(modifier: Modifier = Modifier) {
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = screenContentPadding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(Spacing.Gap)
     ) {
-        Text("On-device AI", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-        Text(
-            "GGUF chat through llama.cpp, and ONNX text encoders through ONNX Runtime.",
-            style = MaterialTheme.typography.bodyLarge
-        )
-        Text(
-            "Weights stay in the app-private no-backup directory and are never served by the web host.",
-            style = MaterialTheme.typography.bodySmall
-        )
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.Snug)) {
+                Text(
+                    text = "On-device AI",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                SupportingText(
+                    text = "GGUF chat through llama.cpp, and ONNX text encoders through ONNX Runtime"
+                )
+            }
+        }
 
-        RuntimeStatusCard(controller)
+        item { RuntimeSection(controller) }
 
         controller.message?.let { notice ->
-            Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.padding(18.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(notice, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                    OutlinedButton(onClick = { controller.clearMessage() }) { Text("Dismiss") }
-                }
+            item {
+                Notice(
+                    message = notice,
+                    action = {
+                        SecondaryButton(onClick = { controller.clearMessage() }) {
+                            Text("Dismiss", style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                )
             }
         }
 
-        ModelsCard(controller) { picker.launch(arrayOf("*/*")) }
-        DownloadCard(controller)
-        ChatCard(controller)
-        AiApiCard(controller)
-        OnnxCard(controller) { vocabularyPicker.launch(arrayOf("text/plain", "*/*")) }
-    }
-}
+        item { ModelsCard(controller) { picker.launch(arrayOf("*/*")) } }
+        item { DownloadCard(controller) }
+        item { ChatCard(controller) }
+        item { AiApiCard(controller) }
+        item { OnnxCard(controller) { vocabularyPicker.launch(arrayOf("text/plain", "*/*")) } }
 
-@Composable
-private fun RuntimeStatusCard(controller: AiController) {
-    Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text("Runtime status", fontWeight = FontWeight.Bold)
-            StatusLine("llama.cpp", controller.llamaStatus)
-            StatusLine("ONNX Runtime", controller.onnxStatus)
-            StatusLine("Model directory", controller.modelDirectory)
-            StatusLine("Worker", "${controller.config.threads} threads")
-            if (controller.busy) {
-                StatusLine("Working on", controller.busyLabel)
-            }
+        item {
+            SupportingText(
+                text = "Weights stay in the app-private no-backup directory and are never served by " +
+                    "the web host."
+            )
         }
     }
 }
 
 @Composable
-private fun StatusLine(label: String, value: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium)
-        Text(value, style = MaterialTheme.typography.bodySmall)
+private fun RuntimeSection(controller: AiController) {
+    // A read-out rather than a form: what the runtimes report is set out directly on the screen,
+    // so the page opens with information rather than with one more box.
+    SectionColumn {
+        SectionHeading(
+            title = "Runtime",
+            subtitle = "Which libraries loaded, and what is loaded into them"
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.Base)) {
+            LabeledValue(
+                label = "llama.cpp",
+                value = controller.llamaStatus,
+                modifier = Modifier.weight(1f)
+            )
+            LabeledValue(
+                label = "ONNX Runtime",
+                value = controller.onnxStatus,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        LabeledValue(
+            label = "Model directory",
+            value = controller.modelDirectory,
+            monospace = true
+        )
+        LabeledValue(
+            label = "Worker",
+            value = "${controller.config.threads} threads"
+        )
+        if (controller.busy) {
+            StatusPill(
+                label = "Working on",
+                tone = StatusTone.Starting,
+                detail = controller.busyLabel
+            )
+        }
     }
 }
 
 @Composable
 private fun ModelsCard(controller: AiController, onImport: () -> Unit) {
-    Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("Models", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                OutlinedButton(onClick = { controller.refreshModels() }, enabled = !controller.busy) {
-                    Text("Refresh")
+    SectionCard {
+        SectionHeading(
+            title = "Models",
+            subtitle = "Weights on this device, and which one is loaded",
+            trailing = {
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.Snug)) {
+                    SecondaryButton(
+                        onClick = { controller.refreshModels() },
+                        enabled = !controller.busy
+                    ) {
+                        ButtonContent(Icons.Default.Refresh, "Refresh")
+                    }
+                    PrimaryButton(onClick = onImport, enabled = !controller.busy) {
+                        ButtonContent(Icons.Default.UploadFile, "Import")
+                    }
                 }
-                Button(onClick = onImport, enabled = !controller.busy) { Text("Import") }
             }
+        )
 
-            if (controller.models.isEmpty()) {
-                Text(
-                    "No model files yet. Import a .gguf or .onnx file, or download one below.",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
+        if (controller.models.isEmpty()) {
+            EmptyState(
+                title = "No model files",
+                body = "Import a .gguf or .onnx file, or download one below. Weights are kept outside " +
+                    "the web root, so they are never served.",
+                icon = Icons.Default.Memory
+            )
+        }
 
-            controller.ggufModels.forEach { model ->
-                StoredModelRow(
-                    model = model,
-                    selected = controller.selectedGguf == model.name,
-                    primaryLabel = if (controller.loadedModel == model.name) "Loaded" else "Load",
-                    primaryEnabled = !controller.busy && controller.llama.isAvailable() &&
-                        controller.loadedModel != model.name,
-                    onPrimary = { controller.selectGguf(model.name) },
-                    onDelete = { controller.deleteModel(model.name) },
-                    deleteEnabled = !controller.busy
-                )
-            }
+        controller.ggufModels.forEachIndexed { index, model ->
+            if (index > 0) RowDivider()
+            StoredModelRow(
+                model = model,
+                selected = controller.selectedGguf == model.name,
+                primaryLabel = if (controller.loadedModel == model.name) "Loaded" else "Load",
+                primaryEnabled = !controller.busy && controller.llama.isAvailable() &&
+                    controller.loadedModel != model.name,
+                onPrimary = { controller.selectGguf(model.name) },
+                onDelete = { controller.deleteModel(model.name) },
+                deleteEnabled = !controller.busy
+            )
+        }
 
-            controller.onnxModels.forEach { model ->
-                StoredModelRow(
-                    model = model,
-                    selected = controller.selectedOnnx == model.name,
-                    primaryLabel = "Inspect",
-                    primaryEnabled = !controller.busy && controller.onnx.isAvailable(),
-                    onPrimary = { controller.selectOnnx(model.name) },
-                    onDelete = { controller.deleteModel(model.name) },
-                    deleteEnabled = !controller.busy
-                )
-            }
+        controller.onnxModels.forEach { model ->
+            RowDivider()
+            StoredModelRow(
+                model = model,
+                selected = controller.selectedOnnx == model.name,
+                primaryLabel = "Inspect",
+                primaryEnabled = !controller.busy && controller.onnx.isAvailable(),
+                onPrimary = { controller.selectOnnx(model.name) },
+                onDelete = { controller.deleteModel(model.name) },
+                deleteEnabled = !controller.busy
+            )
         }
     }
 }
@@ -213,55 +281,104 @@ private fun StoredModelRow(
     onDelete: () -> Unit,
     deleteEnabled: Boolean
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(model.name, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "${model.kind.label} · ${formatBytes(model.sizeBytes)}",
-                    style = MaterialTheme.typography.bodySmall
+                    text = model.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
+                if (selected) {
+                    StatusPill(
+                        label = "Selected",
+                        tone = StatusTone.Accent,
+                        modifier = Modifier.padding(start = Spacing.Snug)
+                    )
+                }
             }
-            OutlinedButton(onClick = onPrimary, enabled = primaryEnabled) { Text(primaryLabel) }
-            OutlinedButton(onClick = onDelete, enabled = deleteEnabled) { Text("Delete") }
+            Text(
+                text = "${model.kind.label} · ${formatBytes(model.sizeBytes)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-        HorizontalDivider()
+        SecondaryButton(
+            onClick = onPrimary,
+            enabled = primaryEnabled,
+            modifier = Modifier.padding(start = Spacing.Base)
+        ) {
+            Text(primaryLabel, style = MaterialTheme.typography.labelLarge)
+        }
+        IconButton(
+            onClick = onDelete,
+            enabled = deleteEnabled,
+            colors = IconButtonDefaults.iconButtonColors(
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = "Delete ${model.name}",
+                modifier = Modifier.size(18.dp)
+            )
+        }
     }
 }
 
 @Composable
 private fun DownloadCard(controller: AiController) {
-    Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("Download", fontWeight = FontWeight.Bold)
-            OutlinedTextField(
-                value = controller.downloadUrl,
-                onValueChange = { controller.updateDownloadUrl(it) },
-                label = { Text("Model URL") },
-                supportingText = { Text("https only, .gguf or .onnx, at most 8 GiB") },
-                singleLine = true,
-                enabled = !controller.busy,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { controller.startDownload() }, enabled = !controller.busy) {
-                    Text("Download")
-                }
+    SectionCard {
+        SectionHeading(
+            title = "Download",
+            subtitle = "Over HTTPS, streamed to a temporary file and renamed only once complete"
+        )
+        OutlinedTextField(
+            value = controller.downloadUrl,
+            onValueChange = { controller.updateDownloadUrl(it) },
+            label = { Text("Model URL") },
+            supportingText = { Text("https only, .gguf or .onnx, at most 8 GiB") },
+            singleLine = true,
+            enabled = !controller.busy,
+            modifier = Modifier.fillMaxWidth()
+        )
+        ButtonRow {
+            PrimaryButton(
+                onClick = { controller.startDownload() },
+                enabled = !controller.busy
+            ) {
+                ButtonContent(Icons.Default.Download, "Download")
             }
-            controller.downloadProgress?.let { (read, total) ->
+        }
+        controller.downloadProgress?.let { (read, total) ->
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
+                // A determinate bar when the server declared a length, indeterminate when it did
+                // not. Showing a progress fraction that was guessed from nothing reads as a bug.
+                if (total > 0) {
+                    LinearProgressIndicator(
+                        progress = { (read.toFloat() / total).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
                 Text(
-                    if (total > 0) "${formatBytes(read)} of ${formatBytes(total)}" else formatBytes(read),
+                    text = if (total > 0) {
+                        "${formatBytes(read)} of ${formatBytes(total)}"
+                    } else {
+                        formatBytes(read)
+                    },
                     style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Text(
-                "Downloads stream to a temporary file and are renamed into place only after the last byte.",
-                style = MaterialTheme.typography.bodySmall
-            )
         }
     }
 }
@@ -269,100 +386,128 @@ private fun DownloadCard(controller: AiController) {
 @Composable
 private fun ChatCard(controller: AiController) {
     val config = controller.config
-    Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("GGUF chat", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+    SectionCard {
+        SectionHeading(
+            title = "GGUF chat",
+            subtitle = controller.loadedModel?.let { "Loaded $it" } ?: "No model loaded",
+            trailing = {
                 if (controller.loadedModel != null) {
-                    OutlinedButton(onClick = { controller.unloadModel() }, enabled = !controller.busy) {
-                        Text("Unload")
+                    SecondaryButton(onClick = { controller.unloadModel() }, enabled = !controller.busy) {
+                        Text("Unload", style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
-            Text(
-                controller.loadedModel?.let { "Loaded $it" } ?: "No model loaded",
-                style = MaterialTheme.typography.bodySmall
-            )
-            if (!controller.llama.isAvailable()) {
-                Text(
-                    controller.llama.unavailableReason() ?: "llama.cpp is unavailable",
-                    style = MaterialTheme.typography.bodySmall
+        )
+
+        if (!controller.llama.isAvailable()) {
+            SupportingText(controller.llama.unavailableReason() ?: "llama.cpp is unavailable")
+        }
+
+        FieldLabel("Context")
+        // Scrolling rather than a fixed Row: five sizes at the default type scale do not fit a
+        // narrow phone, and the largest option was the one that fell off the end.
+        ChipRow {
+            CONTEXT_CHOICES.forEach { size ->
+                FilterChip(
+                    selected = config.contextSize == size,
+                    onClick = { controller.updateConfig(config.copy(contextSize = size)) },
+                    enabled = !controller.busy,
+                    label = { Text(size.toString()) },
+                    shape = MaterialTheme.shapes.small
                 )
             }
+        }
 
-            Text("Context", style = MaterialTheme.typography.labelMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CONTEXT_CHOICES.forEach { size ->
-                    FilterChip(
-                        selected = config.contextSize == size,
-                        onClick = { controller.updateConfig(config.copy(contextSize = size)) },
-                        enabled = !controller.busy,
-                        label = { Text(size.toString()) }
-                    )
-                }
-            }
-
-            Text("Reply length", style = MaterialTheme.typography.labelMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TOKEN_CHOICES.forEach { tokens ->
-                    FilterChip(
-                        selected = config.maxTokens == tokens,
-                        onClick = { controller.updateConfig(config.copy(maxTokens = tokens)) },
-                        enabled = !controller.busy,
-                        label = { Text(tokens.toString()) }
-                    )
-                }
-            }
-
-            Text("Temperature", style = MaterialTheme.typography.labelMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TEMPERATURE_CHOICES.forEach { temperature ->
-                    FilterChip(
-                        selected = config.temperature == temperature,
-                        onClick = { controller.updateConfig(config.copy(temperature = temperature)) },
-                        enabled = !controller.busy,
-                        label = { Text("%.1f".format(temperature)) }
-                    )
-                }
-            }
-            Text(
-                "Context, reply length and temperature apply to the next load and the next turn.",
-                style = MaterialTheme.typography.bodySmall
-            )
-
-            if (controller.chatTurns.isNotEmpty()) {
-                Text("Transcript", style = MaterialTheme.typography.labelMedium)
-                controller.chatTurns.forEach { turn ->
-                    Text(
-                        "${if (turn.role == ChatTurn.Role.User) "You" else "Model"}: ${turn.text}",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-            if (controller.reply.isNotEmpty()) {
-                Text("Reply", style = MaterialTheme.typography.labelMedium)
-                Text(controller.reply, style = MaterialTheme.typography.bodySmall)
-            }
-
-            OutlinedTextField(
-                value = controller.draft,
-                onValueChange = { controller.updateDraft(it) },
-                label = { Text("Message") },
-                minLines = 2,
-                enabled = !controller.busy,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { controller.send() }, enabled = controller.canChat) { Text("Send") }
-                OutlinedButton(
-                    onClick = { controller.stopGeneration() },
-                    enabled = controller.busy && controller.loadedModel != null
-                ) { Text("Stop") }
+        FieldLabel("Reply length")
+        ChipRow {
+            TOKEN_CHOICES.forEach { tokens ->
+                FilterChip(
+                    selected = config.maxTokens == tokens,
+                    onClick = { controller.updateConfig(config.copy(maxTokens = tokens)) },
+                    enabled = !controller.busy,
+                    label = { Text(tokens.toString()) },
+                    shape = MaterialTheme.shapes.small
+                )
             }
         }
+
+        FieldLabel("Temperature")
+        ChipRow {
+            TEMPERATURE_CHOICES.forEach { temperature ->
+                FilterChip(
+                    selected = config.temperature == temperature,
+                    onClick = { controller.updateConfig(config.copy(temperature = temperature)) },
+                    enabled = !controller.busy,
+                    label = { Text("%.1f".format(temperature)) },
+                    shape = MaterialTheme.shapes.small
+                )
+            }
+        }
+
+        SupportingText("Context, reply length and temperature apply to the next load and the next turn.")
+
+        if (controller.chatTurns.isNotEmpty()) {
+            RowDivider()
+            FieldLabel("Transcript")
+            controller.chatTurns.forEach { turn ->
+                TranscriptLine(turn)
+            }
+        }
+        if (controller.reply.isNotEmpty()) {
+            RowDivider()
+            FieldLabel("Reply")
+            Text(
+                text = controller.reply,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+
+        OutlinedTextField(
+            value = controller.draft,
+            onValueChange = { controller.updateDraft(it) },
+            label = { Text("Message") },
+            enabled = !controller.busy,
+            minLines = 2,
+            modifier = Modifier.fillMaxWidth()
+        )
+        ButtonRow {
+            PrimaryButton(onClick = { controller.send() }, enabled = controller.canChat) {
+                ButtonContent(Icons.AutoMirrored.Filled.Send, "Send")
+            }
+            SecondaryButton(
+                onClick = { controller.stopGeneration() },
+                enabled = controller.busy && controller.loadedModel != null
+            ) {
+                ButtonContent(Icons.Default.Stop, "Stop")
+            }
+        }
+    }
+}
+
+/** One turn of the transcript, labelled by who said it rather than by a prefix in the text. */
+@Composable
+private fun TranscriptLine(turn: ChatTurn) {
+    val fromUser = turn.role == ChatTurn.Role.User
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = Spacing.Tight)
+    ) {
+        Text(
+            text = if (fromUser) "You" else "Model",
+            style = MaterialTheme.typography.labelMedium,
+            color = if (fromUser) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+        Text(
+            text = turn.text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 
@@ -395,7 +540,7 @@ private fun AiApiCard(controller: AiController) {
             }
         }
         handler.post(poll)
-        onDispose { handler.removeCallbacks(poll) }
+        onDispose { handler.removeCallbacksAndMessages(null) }
     }
     DisposableEffect(settings) {
         if (settings != null) {
@@ -406,148 +551,168 @@ private fun AiApiCard(controller: AiController) {
         onDispose { }
     }
 
-    Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("Local AI API", fontWeight = FontWeight.Bold)
-            Text(
-                when (status.phase) {
-                    AiApiPhase.Stopped -> "Not running"
-                    AiApiPhase.Running -> "Running"
-                    AiApiPhase.Failed -> "Not available"
-                },
-                fontWeight = FontWeight.Bold
-            )
-            if (status.detail.isNotEmpty()) {
-                Text(status.detail, style = MaterialTheme.typography.bodySmall)
-            }
-            status.endpoint().takeIf { it.isNotEmpty() }?.let { endpoint ->
-                StatusLine("Endpoint", endpoint)
-            }
-            StatusLine("Model", controller.loadedModel ?: "None loaded, so chat answers 503")
-            StatusLine(
-                "Encoder",
-                controller.selectedOnnx ?: "None selected, so embeddings answer 503"
-            )
-            StatusLine(
-                "Paths",
-                "GET /health · GET /v1/models · POST /v1/chat/completions · POST /v1/embeddings"
-            )
-            Text(
-                "The API uses the model loaded in this tab; there is no second copy. It is started " +
-                    "and stopped with the web server, and every route needs the bearer token below.",
-                style = MaterialTheme.typography.bodySmall
-            )
+    SectionCard {
+        SectionHeading(
+            title = "Local AI API",
+            subtitle = "An OpenAI-shaped API on its own port, behind a bearer token"
+        )
 
-            if (settings == null) {
-                Text(
-                    "Secure storage is unavailable on this device, so the API stays off.",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                return@Column
-            }
+        StatusPill(
+            label = when (status.phase) {
+                AiApiPhase.Stopped -> "Not running"
+                AiApiPhase.Running -> "Running"
+                AiApiPhase.Failed -> "Not available"
+            },
+            tone = when (status.phase) {
+                AiApiPhase.Stopped -> StatusTone.Idle
+                AiApiPhase.Running -> StatusTone.Live
+                AiApiPhase.Failed -> StatusTone.Error
+            },
+            detail = if (status.isRunning) "port ${status.port}" else null
+        )
 
-            OutlinedTextField(
-                value = portText,
-                onValueChange = { value ->
-                    val digits = value.filter(Char::isDigit).take(ServerSettingsRules.MAX_PORT_DIGITS)
-                    portText = digits
-                    val parsed = ServerSettingsRules.parsePort(digits)
-                    portError = when {
-                        digits.isEmpty() -> ""
-                        parsed == null -> "Use a port between " +
-                            "${ServerSettingsRules.MIN_PORT} and ${ServerSettingsRules.MAX_PORT}"
-                        else -> {
-                            settings.port = parsed
-                            ""
-                        }
+        if (status.detail.isNotEmpty()) {
+            Text(
+                text = status.detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+        status.endpoint().takeIf { it.isNotEmpty() }?.let { endpoint ->
+            LabeledValue(label = "Endpoint", value = endpoint, monospace = true)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.Base)) {
+            LabeledValue(
+                label = "Model",
+                value = controller.loadedModel ?: "None, chat answers 503",
+                modifier = Modifier.weight(1f)
+            )
+            LabeledValue(
+                label = "Encoder",
+                value = controller.selectedOnnx ?: "None, embeddings answer 503",
+                modifier = Modifier.weight(1f)
+            )
+        }
+        LabeledValue(
+            label = "Paths",
+            value = "GET /health · GET /v1/models · POST /v1/chat/completions · POST /v1/embeddings",
+            monospace = true
+        )
+        SupportingText(
+            text = "The API uses the model loaded in this tab; there is no second copy. It is started " +
+                "and stopped with the web server, and every route needs the bearer token below."
+        )
+
+        if (settings == null) {
+            SupportingText("Secure storage is unavailable on this device, so the API stays off.")
+            return@SectionCard
+        }
+
+        OutlinedTextField(
+            value = portText,
+            onValueChange = { value ->
+                val digits = value.filter(Char::isDigit).take(ServerSettingsRules.MAX_PORT_DIGITS)
+                portText = digits
+                val parsed = ServerSettingsRules.parsePort(digits)
+                portError = when {
+                    digits.isEmpty() -> ""
+                    parsed == null -> "Use a port between " +
+                        "${ServerSettingsRules.MIN_PORT} and ${ServerSettingsRules.MAX_PORT}"
+                    else -> {
+                        settings.port = parsed
+                        ""
                     }
-                },
-                label = { Text("API port") },
-                supportingText = {
-                    Text(
-                        portError.ifEmpty { "Default ${AiApiSettings.DEFAULT_PORT}, separate from the site" }
-                    )
-                },
-                isError = portError.isNotEmpty(),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+                }
+            },
+            label = { Text("API port") },
+            supportingText = {
+                Text(portError.ifEmpty { "Default ${AiApiSettings.DEFAULT_PORT}, separate from the site" })
+            },
+            isError = portError.isNotEmpty(),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
 
-            Row(verticalAlignment = Alignment.Top) {
-                Switch(checked = allowLan, onCheckedChange = {
-                    allowLan = it
-                    settings.allowLan = it
-                })
-                Spacer(Modifier.padding(horizontal = 8.dp))
-                Column(modifier = Modifier.padding(top = 12.dp)) {
-                    Text("Allow LAN access")
-                    Text(
-                        if (allowLan) {
-                            "Listening on ${ServerSettingsRules.ANY_ADDRESS}, so other devices on " +
-                                "this network can call the model"
+        SwitchRow(
+            checked = allowLan,
+            onCheckedChange = {
+                allowLan = it
+                settings.allowLan = it
+            },
+            title = "Allow LAN access",
+            summary = if (allowLan) {
+                "Listening on ${ServerSettingsRules.ANY_ADDRESS}, so other devices on this network " +
+                    "can call the model"
+            } else {
+                "Listening on ${ServerSettingsRules.LOOPBACK_ADDRESS}, reachable from this device only"
+            }
+        )
+
+        OutlinedTextField(
+            value = token,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Bearer token") },
+            visualTransformation = if (tokenVisible) {
+                VisualTransformation.None
+            } else {
+                PasswordVisualTransformation()
+            },
+            supportingText = {
+                Text(
+                    if (token.isEmpty()) {
+                        "No token yet. One is created when the server starts."
+                    } else {
+                        "Stored encrypted under an Android Keystore key"
+                    }
+                )
+            },
+            singleLine = true,
+            trailingIcon = {
+                // An eye on the field rather than a separate Show button beside it, so the control
+                // is attached to the thing it reveals.
+                IconButton(onClick = { tokenVisible = !tokenVisible }, enabled = token.isNotEmpty()) {
+                    Icon(
+                        imageVector = if (tokenVisible) {
+                            Icons.Default.VisibilityOff
                         } else {
-                            "Listening on ${ServerSettingsRules.LOOPBACK_ADDRESS}, reachable from this device only"
+                            Icons.Default.Visibility
                         },
-                        style = MaterialTheme.typography.bodySmall
+                        contentDescription = if (tokenVisible) "Hide the token" else "Show the token"
                     )
                 }
-            }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
 
-            OutlinedTextField(
-                value = token,
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("Bearer token") },
-                visualTransformation = if (tokenVisible) {
-                    VisualTransformation.None
-                } else {
-                    PasswordVisualTransformation()
-                },
-                supportingText = {
-                    Text(
-                        if (token.isEmpty()) {
-                            "No token yet. One is created when the server starts."
-                        } else {
-                            "Stored encrypted under an Android Keystore key"
-                        }
-                    )
-                },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = { tokenVisible = !tokenVisible },
-                    enabled = token.isNotEmpty()
-                ) { Text(if (tokenVisible) "Hide token" else "Show token") }
-                OutlinedButton(
-                    onClick = {
-                        val fresh = AiApiToken.generate()
-                        notice = if (runCatching { settings.rotateToken(fresh) }.isSuccess) {
-                            token = fresh
-                            tokenVisible = true
-                            "A new token was generated. Restart the server for it to take effect."
-                        } else {
-                            "The token could not be stored on this device"
-                        }
+        ButtonRow {
+            SecondaryButton(
+                onClick = {
+                    val fresh = AiApiToken.generate()
+                    notice = if (runCatching { settings.rotateToken(fresh) }.isSuccess) {
+                        token = fresh
+                        tokenVisible = true
+                        "A new token was generated. Restart the server for it to take effect."
+                    } else {
+                        "The token could not be stored on this device"
                     }
-                ) { Text("New token") }
+                }
+            ) {
+                Text("New token", style = MaterialTheme.typography.labelLarge)
             }
-            if (notice.isNotEmpty()) {
-                Text(notice, style = MaterialTheme.typography.bodySmall)
-            }
-            // The loopback endpoint is the one case where the URL is exact enough to paste. With LAN
-            // access the client has to use this device's own address, which the app does not hold.
-            status.endpoint().takeIf { it.startsWith("http") && status.isRunning }?.let { base ->
-                Text(
-                    "curl -H \"Authorization: Bearer ${'$'}TOKEN\" $base/v1/models",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
+        }
+        if (notice.isNotEmpty()) {
+            Notice(message = notice)
+        }
+        // The loopback endpoint is the one case where the URL is exact enough to paste. With LAN
+        // access the client has to use this device's own address, which the app does not hold.
+        status.endpoint().takeIf { it.startsWith("http") && status.isRunning }?.let { base ->
+            Text(
+                text = "curl -H \"Authorization: Bearer ${'$'}TOKEN\" $base/v1/models",
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -555,25 +720,27 @@ private fun AiApiCard(controller: AiController) {
 @Composable
 private fun OnnxCard(controller: AiController, onImportVocabulary: () -> Unit) {
     val info = controller.onnxModel
-    Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("ONNX", fontWeight = FontWeight.Bold)
-            if (info == null) {
-                Text("Select an ONNX model to open a session.", style = MaterialTheme.typography.bodySmall)
-                return@Column
-            }
-            OnnxModelCard(controller, info)
-            controller.encoder?.let { encoder ->
-                HorizontalDivider()
-                Text("Text encoder", style = MaterialTheme.typography.labelMedium)
-                Text(encoder.summary, style = MaterialTheme.typography.bodySmall)
-            }
-            HorizontalDivider()
-            EmbeddingCard(controller, onImportVocabulary)
+    SectionCard {
+        SectionHeading(
+            title = "ONNX encoder",
+            subtitle = "Text embeddings, with a WordPiece vocabulary beside the graph"
+        )
+        if (info == null) {
+            EmptyState(
+                title = "No encoder selected",
+                body = "Import an .onnx model above and choose Inspect to open a session.",
+                icon = Icons.Default.Memory
+            )
+            return@SectionCard
         }
+        OnnxModelCard(controller, info)
+        controller.encoder?.let { encoder ->
+            RowDivider()
+            FieldLabel("Text encoder")
+            SupportingText(encoder.summary)
+        }
+        RowDivider()
+        EmbeddingCard(controller, onImportVocabulary)
     }
 }
 
@@ -587,27 +754,31 @@ private fun OnnxCard(controller: AiController, onImportVocabulary: () -> Unit) {
 private fun EmbeddingCard(controller: AiController, onImportVocabulary: () -> Unit) {
     val encoder = controller.encoder
     val vocabulary = controller.vocabularyName
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Embeddings", style = MaterialTheme.typography.labelMedium)
-        StatusLine("Vocabulary", controller.vocabularyStatus)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onImportVocabulary, enabled = !controller.busy) {
-                Text(if (vocabulary == null) "Import vocab.txt" else "Replace vocab.txt")
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.Base)) {
+        LabeledValue(
+            label = "Vocabulary",
+            value = controller.vocabularyStatus
+        )
+        ButtonRow {
+            PrimaryButton(onClick = onImportVocabulary, enabled = !controller.busy) {
+                ButtonContent(
+                    Icons.Default.UploadFile,
+                    if (vocabulary == null) "Import vocab.txt" else "Replace vocab.txt"
+                )
             }
             vocabulary?.let { name ->
-                OutlinedButton(
+                SecondaryButton(
                     onClick = { controller.deleteVocabulary(name) },
                     enabled = !controller.busy
                 ) {
-                    Text("Remove")
+                    Text("Remove", style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
         if (encoder?.supported != true) {
-            Text(
+            SupportingText(
                 "A text encoder needs integer input_ids and attention_mask, a float output, and its " +
-                    "vocab.txt beside it.",
-                style = MaterialTheme.typography.bodySmall
+                    "vocab.txt beside it."
             )
             return@Column
         }
@@ -620,51 +791,79 @@ private fun EmbeddingCard(controller: AiController, onImportVocabulary: () -> Un
             minLines = 2,
             modifier = Modifier.fillMaxWidth()
         )
-        Button(onClick = { controller.embedText() }, enabled = controller.canEmbed) {
-            Text("Embed")
+        ButtonRow {
+            PrimaryButton(onClick = { controller.embedText() }, enabled = controller.canEmbed) {
+                Text("Embed", style = MaterialTheme.typography.labelLarge)
+            }
         }
         controller.embedding?.let { summary ->
-            StatusLine("Result", "${summary.dimensions} dimensions from ${summary.tokens} tokens")
-            StatusLine("Norm", String.format(java.util.Locale.ROOT, "%.4f", summary.norm))
-            StatusLine(
-                "First values",
-                summary.firstValues.joinToString(", ") { String.format(java.util.Locale.ROOT, "%.4f", it) }
+            LabeledValue(
+                label = "Result",
+                value = "${summary.dimensions} dimensions from ${summary.tokens} tokens"
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.Base)) {
+                LabeledValue(
+                    label = "Norm",
+                    value = String.format(java.util.Locale.ROOT, "%.4f", summary.norm),
+                    monospace = true,
+                    modifier = Modifier.weight(1f)
+                )
+                LabeledValue(
+                    label = "First values",
+                    value = summary.firstValues.joinToString(", ") {
+                        String.format(java.util.Locale.ROOT, "%.4f", it)
+                    },
+                    monospace = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
     }
 }
 
 @Composable
 private fun OnnxModelCard(controller: AiController, info: OnnxModelInfo) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(info.path.substringAfterLast('/'), fontWeight = FontWeight.Bold)
-        Text("Inputs", style = MaterialTheme.typography.labelMedium)
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.Snug)) {
+        Text(
+            text = info.path.substringAfterLast('/'),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        FieldLabel("Inputs")
         info.inputs.forEach { spec ->
             Text(
-                "${spec.name}: ${spec.shapeText} ${spec.type}" + if (spec.runnable) "" else " (not runnable)",
+                text = "${spec.name}: ${spec.shapeText} ${spec.type}" +
+                    if (spec.runnable) "" else " (not runnable)",
                 style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Text("Outputs", style = MaterialTheme.typography.labelMedium)
+        FieldLabel("Outputs")
         info.outputs.forEach { spec ->
             Text(
-                "${spec.name}: ${spec.shapeText} ${spec.type}",
+                text = "${spec.name}: ${spec.shapeText} ${spec.type}",
                 style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { controller.runOnnx() }, enabled = !controller.busy && info.isRunnable) {
-                Text("Run with zeros")
+        ButtonRow {
+            PrimaryButton(onClick = { controller.runOnnx() }, enabled = !controller.busy && info.isRunnable) {
+                Text("Run with zeros", style = MaterialTheme.typography.labelLarge)
             }
-            OutlinedButton(onClick = { controller.closeOnnx() }, enabled = !controller.busy) {
-                Text("Close")
+            SecondaryButton(onClick = { controller.closeOnnx() }, enabled = !controller.busy) {
+                Text("Close", style = MaterialTheme.typography.labelLarge)
             }
         }
         info.lastRun?.let { output ->
-            Text("Last run", style = MaterialTheme.typography.labelMedium)
-            Text(output, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+            FieldLabel("Last run")
+            Text(
+                text = output,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

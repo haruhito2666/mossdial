@@ -5,26 +5,40 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -34,55 +48,73 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.mossdial.data.OnboardingState
-import com.mossdial.data.ServerSettings
-import com.mossdial.data.ServerSettingsRules
-import com.mossdial.server.ServerStatisticsSnapshot
-import com.mossdial.service.ServerControl
-import com.mossdial.service.ServerPhase
-import com.mossdial.service.ServerState
-import com.mossdial.service.ServerStatus
-import com.mossdial.service.TrafficState
 import com.mossdial.ui.AiScreen
 import com.mossdial.ui.FileManagerScreen
 import com.mossdial.ui.OnboardingScreen
+import com.mossdial.ui.ServerScreen
 import com.mossdial.ui.SettingsScreen
 import com.mossdial.ui.TunnelScreen
+import com.mossdial.ui.theme.CardLarge
+import com.mossdial.ui.theme.MossdialTheme
+import com.mossdial.ui.theme.Spacing
 import com.mossdial.tunnel.TunnelManager
 import com.mossdial.tunnel.TunnelStatus
-import com.mossdial.ui.theme.MossdialTheme
 import com.mossdial.widget.ServerWidget
 
-/** How many remembered requests the traffic card shows; the log itself can hold more. */
-private const val RECENT_REQUESTS_SHOWN = 8
+/**
+ * The five destinations.
+ *
+ * Modelled as data rather than as a `when` over five constants so the label, the icon and the order
+ * cannot drift apart. The icon is a pair because a filled icon reads as selected and an outlined
+ * one does not, which is the standard Material signal and needs no colour to carry it.
+ */
+private enum class Destination(
+    val label: String,
+    val selectedIcon: ImageVector,
+    val unselectedIcon: ImageVector
+) {
+    Server("Server", Icons.Filled.Dns, Icons.Outlined.Dns),
+    Files("Files", Icons.Filled.Folder, Icons.Outlined.Folder),
+    Tunnel("Tunnel", Icons.Filled.Cloud, Icons.Outlined.Cloud),
+    Ai("AI", Icons.Filled.AutoAwesome, Icons.Filled.AutoAwesome),
+    Settings("Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
+}
 
-private const val TAB_SERVER = 0
-private const val TAB_FILES = 1
-private const val TAB_TUNNEL = 2
-private const val TAB_AI = 3
-private const val TAB_SETTINGS = 4
+/**
+ * The height of the navigation bar's box: room for the 24dp icon in its pill, its label, and the
+ * 48dp the thumb needs, with the box's own breathing around them.
+ */
+private val NavBarHeight = 68.dp
 
 class MainActivity : ComponentActivity() {
-    private val handler = Handler(Looper.getMainLooper())
-
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The interface draws its own background, so the system bars are transparent and the
+        // content is inset past them by the Scaffold. Without this the navigation bar is an opaque
+        // strip across the bottom of every screen.
+        //
+        // `SystemBarStyle.light` is passed explicitly rather than letting `enableEdgeToEdge` pick:
+        // the default follows the system dark-mode setting, and this app is light-only, so on a
+        // device set to dark the bars would get light-on-dark icons over a light app background
+        // and become unreadable.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+        )
         super.onCreate(savedInstanceState)
         setContent {
             MossdialTheme {
                 MossdialApp()
             }
         }
-    }
-
-    override fun onDestroy() {
-        handler.removeCallbacksAndMessages(null)
-        super.onDestroy()
     }
 
     @Composable
@@ -106,215 +138,133 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        var selectedTab by rememberSaveable { mutableIntStateOf(TAB_SERVER) }
+        var selected by rememberSaveable { mutableIntStateOf(0) }
+        val destination = Destination.entries[selected]
+
         DisposableEffect(Unit) {
             val listener: (TunnelStatus) -> Unit = { ServerWidget.refresh(context) }
             TunnelManager.addListener(listener)
             onDispose { TunnelManager.removeListener(listener) }
         }
-        Column(modifier = Modifier.fillMaxSize()) {
-            TabRow(selectedTabIndex = selectedTab) {
-                Tab(
-                    selected = selectedTab == TAB_SERVER,
-                    onClick = { selectedTab = TAB_SERVER },
-                    text = { Text("Server") }
-                )
-                Tab(
-                    selected = selectedTab == TAB_FILES,
-                    onClick = { selectedTab = TAB_FILES },
-                    text = { Text("Files") }
-                )
-                Tab(
-                    selected = selectedTab == TAB_TUNNEL,
-                    onClick = { selectedTab = TAB_TUNNEL },
-                    text = { Text("Tunnel") }
-                )
-                Tab(
-                    selected = selectedTab == TAB_AI,
-                    onClick = { selectedTab = TAB_AI },
-                    text = { Text("AI") }
-                )
-                Tab(
-                    selected = selectedTab == TAB_SETTINGS,
-                    onClick = { selectedTab = TAB_SETTINGS },
-                    text = { Text("Settings") }
-                )
-            }
-            Box(modifier = Modifier.weight(1f)) {
-                when (selectedTab) {
-                    TAB_SERVER -> ServerScreen(onOpenSettings = { selectedTab = TAB_SETTINGS })
-                    TAB_FILES -> FileManagerScreen()
-                    TAB_TUNNEL -> TunnelScreen()
-                    TAB_AI -> AiScreen()
-                    else -> SettingsScreen(onOpenTunnel = { selectedTab = TAB_TUNNEL })
-                }
-            }
-        }
-    }
 
-    @Composable
-    private fun ServerScreen(onOpenSettings: () -> Unit) {
-        val context = LocalContext.current
-        val settings = remember { ServerSettings(context) }
-        var status by remember { mutableStateOf(ServerState.snapshot()) }
-        var traffic by remember { mutableStateOf(TrafficState.snapshot()) }
-
-        DisposableEffect(Unit) {
-            val poll = object : Runnable {
-                override fun run() {
-                    status = ServerState.snapshot()
-                    // Traffic moves in whole requests, so a slower tick than the status keeps the
-                    // recomposition down without anything looking stale.
-                    if (status.isActive) traffic = TrafficState.snapshot()
-                    handler.postDelayed(this, 1_000)
-                }
-            }
-            handler.post(poll)
-            onDispose { handler.removeCallbacks(poll) }
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text("Mossdial", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            Text("Local web host", style = MaterialTheme.typography.bodyLarge)
-            Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = MaterialTheme.colorScheme.background,
+            // The bar draws its own background, so it handles the bottom inset itself and only the
+            // content is padded away from the status bar and the top of the bar.
+            bottomBar = {
+                // A floating rectangle box, not a full-width strip: rounded like the cards it sits
+                // above, inset from the screen edges, and lifted clear of the gesture area by its
+                // own padding rather than the Scaffold's.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(start = Spacing.Inset, end = Spacing.Inset, bottom = Spacing.Base)
                 ) {
-                    Text(
-                        when (status.phase) {
-                            ServerPhase.Stopped -> "Offline"
-                            ServerPhase.Starting -> "Starting"
-                            ServerPhase.Running -> "Online"
-                            ServerPhase.Failed -> "Not running"
-                        },
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(address(settings, status), style = MaterialTheme.typography.bodySmall)
-                    if (status.detail.isNotEmpty() && status.phase != ServerPhase.Running) {
-                        Text(status.detail, style = MaterialTheme.typography.bodySmall)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = { ServerControl.start(context, settings) },
-                            enabled = !status.isActive
-                        ) { Text("Start") }
-                        OutlinedButton(
-                            onClick = {
-                                settings.autoStart = false
-                                ServerControl.stop(context)
-                            },
-                            enabled = status.isActive
-                        ) { Text("Stop") }
-                    }
-                    OutlinedButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
-                        Text("Server settings")
+                    Surface(
+                        shape = CardLarge,
+                        color = MaterialTheme.colorScheme.surface,
+                        // The same hairline the cards use, so bar, cards and background read as one
+                        // material rather than three blues-grey tones trying to agree.
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(NavBarHeight)
+                                .padding(horizontal = Spacing.Snug, vertical = Spacing.Tight)
+                        ) {
+                            Destination.entries.forEachIndexed { index, item ->
+                                DestinationItem(
+                                    destination = item,
+                                    selected = index == selected,
+                                    onClick = { selected = index }
+                                )
+                            }
+                        }
                     }
                 }
             }
-            Text(
-                if (settings.enableSsl) {
-                    "HTTPS uses an app-private certificate kept in the platform keystore, so it is the same one every time you start the server."
-                } else {
-                    "HTTP is loopback-only unless LAN access is enabled."
-                },
-                style = MaterialTheme.typography.bodySmall
-            )
-            if (status.phase == ServerPhase.Running) {
-                TrafficCard(traffic, settings.requestLogging, onOpenSettings = onOpenSettings)
+        ) { innerPadding ->
+            when (destination) {
+                Destination.Server -> ServerScreen(
+                    contentPadding = innerPadding,
+                    onOpenSettings = { selected = Destination.entries.indexOf(Destination.Settings) }
+                )
+                Destination.Files -> FileManagerScreen(contentPadding = innerPadding)
+                Destination.Tunnel -> TunnelScreen(contentPadding = innerPadding)
+                Destination.Ai -> AiScreen(contentPadding = innerPadding)
+                Destination.Settings -> SettingsScreen(
+                    contentPadding = innerPadding,
+                    onOpenTunnel = { selected = Destination.entries.indexOf(Destination.Tunnel) }
+                )
             }
         }
-    }
-
-    /**
-     * What the server has served since it started.
-     *
-     * The counters are always there because they record no path: how much was asked for, and how it
-     * was answered. The request list is only ever populated when the user turned the request log on,
-     * and says so rather than showing an empty list that looks like a broken feature.
-     */
-    @Composable
-    private fun TrafficCard(
-        traffic: ServerStatisticsSnapshot,
-        loggingEnabled: Boolean,
-        onOpenSettings: () -> Unit
-    ) {
-        Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("Traffic", fontWeight = FontWeight.Bold)
-                Text("Requests: ${traffic.totalRequests}", style = MaterialTheme.typography.bodySmall)
-                Text("Sent: ${formatBytes(traffic.bytesSent)}", style = MaterialTheme.typography.bodySmall)
-                if (traffic.statusCounts.isNotEmpty()) {
-                    Text(
-                        "Answers: " + traffic.statusCounts.entries
-                            .sortedBy { it.key }
-                            .joinToString("  ") { "${it.key} ×${it.value}" },
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                if (traffic.recentRequests.isNotEmpty()) {
-                    Text("Recent requests", style = MaterialTheme.typography.labelMedium)
-                    traffic.recentRequests.takeLast(RECENT_REQUESTS_SHOWN).forEach { entry ->
-                        Text(
-                            "${entry.method} ${entry.path} → ${entry.status}",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                } else {
-                    Text(
-                        if (loggingEnabled) {
-                            "No requests yet."
-                        } else {
-                            "The request log is off, so paths are not recorded. Turn it on in settings."
-                        },
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    if (!loggingEnabled) {
-                        OutlinedButton(onClick = onOpenSettings) { Text("Server settings") }
-                    }
-                }
-            }
-        }
-    }
-
-    /** Bytes as something a person can read, without pulling in a formatter. */
-    private fun formatBytes(bytes: Long): String {
-        if (bytes < 1_024) return "$bytes B"
-        val units = listOf("KiB", "MiB", "GiB")
-        var value = bytes.toDouble()
-        var index = -1
-        while (value >= 1_024 && index < units.lastIndex) {
-            value /= 1_024
-            index++
-        }
-        return String.format(java.util.Locale.ROOT, "%.1f %s", value, units[index])
-    }
-
-    /**
-     * The address the server is on right now. While it runs, the published status describes the
-     * configuration it was actually started with; otherwise the stored configuration is shown, so
-     * the address never mixes a live port with settings the user has since changed.
-     */
-    private fun address(settings: ServerSettings, status: ServerStatus): String {
-        val live = status.phase == ServerPhase.Running
-        val port = if (live) status.port else settings.port
-        val allowLan = if (live) status.allowLan else settings.allowLan
-        val useTls = if (live) status.enableTls else settings.enableSsl
-        val scheme = if (useTls) "https" else "http"
-        return "$scheme://${ServerSettingsRules.bindAddress(allowLan)}:$port"
     }
 
     private fun needsNotificationPermission(context: Context): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
+}
+
+/**
+ * One destination inside the navigation bar: the icon inside its indicator pill, the label under
+ * it, and the whole column as the tap target.
+ *
+ * The pill occupies its space whether or not the tab is selected — transparent when it is not — so
+ * the icon never jumps when its destination comes on, and all five labels sit on the same line.
+ * The selected tab is black on the light green pill, which is the palette's own pair; the others
+ * are their grey. There is deliberately no ripple: the selection state is itself the feedback, and
+ * a splash under the thumb said nothing the new tab colour didn't.
+ */
+@Composable
+private fun DestinationItem(
+    destination: Destination,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val tint = if (selected) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Column(
+        modifier = modifier
+            .clip(MaterialTheme.shapes.small)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
+            .padding(vertical = Spacing.Tight + 1.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Spacing.Tiniest)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(percent = 50),
+            color = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                Color.Transparent
+            }
+        ) {
+            Icon(
+                imageVector = if (selected) destination.selectedIcon else destination.unselectedIcon,
+                contentDescription = destination.label,
+                tint = tint,
+                modifier = Modifier
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .size(24.dp)
+            )
+        }
+        Text(
+            text = destination.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = tint,
+            maxLines = 1
+        )
+    }
 }

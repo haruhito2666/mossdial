@@ -85,7 +85,8 @@ inference can never hold up the site.
 
 ### Everything else
 
-- Onboarding on first run, then five tabs: Server, Files, Tunnel, AI, Settings.
+- Onboarding on first run, then a bottom navigation bar with five destinations: Server, Files, Tunnel,
+  AI, Settings.
 - Traffic counters, and an optional in-memory request log that is **off by default**. With it off, no
   request path is recorded anywhere, logcat included. The counters record no path and are always
   kept.
@@ -153,20 +154,23 @@ device.
 
 | Path | Role |
 |------|------|
-| `app/src/main/java/com/mossdial/MainActivity.kt` | Tabs, notification permission, the Server screen and its traffic card |
+| `app/src/main/java/com/mossdial/MainActivity.kt` | Navigation shell, onboarding gate, notification permission |
 | `app/src/main/java/com/mossdial/server/` | HTTP server, path policy, ranges, caching, gzip, rate limiting, statistics, DER encoder, certificate, TLS identity |
 | `app/src/main/java/com/mossdial/aiapi/` | The second listener: routes, bearer token, JSON, bounds, health |
 | `app/src/main/java/com/mossdial/service/` | Foreground service, notifications, boot receiver, start/stop policy, shared state |
 | `app/src/main/java/com/mossdial/tunnel/` | The user-configured `cloudflared` process, argv, bounded status |
 | `app/src/main/java/com/mossdial/data/` | Web root and file store, settings, Keystore secret store, model store, import, download, AI API settings |
 | `app/src/main/java/com/mossdial/ai/` | llama.cpp JNI wrapper, ONNX Runtime wrapper, WordPiece tokenizer, encoder detection, shared AI controller |
-| `app/src/main/java/com/mossdial/ui/` | Files, Tunnel, AI, Settings and onboarding screens, theme |
+| `app/src/main/java/com/mossdial/ui/` | Server, Files, Tunnel, AI, Settings and onboarding screens |
+| `app/src/main/java/com/mossdial/ui/components/` | The shared pieces every screen is built from: section card, heading, label-over-value, status pill, switch row, notices, empty state |
+| `app/src/main/java/com/mossdial/ui/theme/` | Colour palette, type scale, corner radii, the spacing scale, and the status colours Material has no slot for |
 | `app/src/main/java/com/mossdial/widget/` | Home-screen widget and its start/stop actions |
 | `app/src/main/cpp/` | The JNI bridge for GGUF loading and generation |
 | `app/src/main/cpp/third_party/llama.cpp/` | Pinned upstream runtime sources, pruned, with licences |
 | `app/src/main/res/` | Adaptive launcher icon, widget layout, strings, data-extraction rules |
 | `app/proguard-rules.pro` | The keeps both third-party runtimes need, since neither ships consumer rules |
 | `app/src/test/` | JVM tests for protocol, security, tokenizer, encoder, model store, tunnel, service and API behaviour |
+| `app/src/androidTest/` | Device smoke tests: the keystore TLS identity and its certificate across restarts, the real TLS handshake, the server over the platform socket stack, and the foreground service |
 
 ## Security defaults
 

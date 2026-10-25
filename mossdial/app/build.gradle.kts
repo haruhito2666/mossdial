@@ -77,6 +77,12 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // FlowRow is how the button and chip rows wrap instead of overflowing on a narrow screen.
+        // It is still marked experimental, so the whole module opts in rather than every call site
+        // carrying its own annotation.
+        freeCompilerArgs += listOf(
+            "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi"
+        )
     }
 
     buildFeatures {

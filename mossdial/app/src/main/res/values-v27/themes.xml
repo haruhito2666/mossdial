@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    `windowLightNavigationBar` arrived in API 27. It is what puts dark icons on the navigation bar,
+    which a light scheme needs: the default icons are white, and the bar is transparent over a
+    near-white background, so without this the back and home affordances are invisible.
+-->
+<resources>
+    <style name="Theme.Mossdial" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

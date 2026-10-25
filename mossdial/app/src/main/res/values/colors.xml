@@ -1,7 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    The widget renders outside the app's own theme, so these colours are declared here as resources
+    and mirrored by the Compose palette in `ui/theme/Color.kt`. They are deliberately not theme
+    attributes: a `RemoteViews` widget cannot resolve one.
+
+    `background` is also the window background in `themes.xml`, which is why it is called that
+    rather than `widget_background`.
+-->
 <resources>
+    <color name="background">#FFFFFFFF</color>
+
     <color name="widget_background">#FFFFFFFF</color>
-    <color name="widget_text">#FF1A1C1E</color>
-    <color name="widget_text_muted">#FF5D655D</color>
-    <color name="widget_accent">#FF2D7D3E</color>
+    <color name="widget_text">#FF111311</color>
+    <color name="widget_text_muted">#FF6A706A</color>
+    <color name="widget_accent">#FF44A857</color>
 </resources>

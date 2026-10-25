@@ -133,7 +133,16 @@ abstract class TlsIdentity(internal val certificate: SelfSignedCertificate) {
                     KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
                 )
                     .setKeySize(2048)
+                    // Both paddings, because TLS uses both and neither is optional. TLS 1.2 signs
+                    // the handshake with PKCS#1, and TLS 1.3 signs it with RSA-PSS for an RSA
+                    // certificate, so a key authorising only PKCS#1 handshakes under TLS 1.2 and
+                    // then fails under TLS 1.3 with a protocol error from the TLS stack that says
+                    // nothing about the key at all.
                     .setDigests(KeyProperties.DIGEST_SHA256)
+                    .setSignaturePaddings(
+                        KeyProperties.SIGNATURE_PADDING_RSA_PKCS1,
+                        KeyProperties.SIGNATURE_PADDING_RSA_PSS
+                    )
                     .setUserAuthenticationRequired(false)
                     .build()
             )

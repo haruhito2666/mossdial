@@ -8,40 +8,40 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.automirrored.filled.NoteAdd
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,20 +54,29 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
 import com.mossdial.data.ManagedFile
 import com.mossdial.data.WebRoot
 import com.mossdial.data.WebRootFileStore
+import com.mossdial.ui.components.ButtonContent
+import com.mossdial.ui.components.ButtonRow
+import com.mossdial.ui.components.EmptyState
+import com.mossdial.ui.components.ErrorNotice
+import com.mossdial.ui.components.Notice
+import com.mossdial.ui.components.PrimaryButton
+import com.mossdial.ui.components.SecondaryButton
+import com.mossdial.ui.theme.Spacing
 import java.io.FileNotFoundException
-import java.util.Locale
 import java.util.concurrent.Executors
 
 @Composable
-fun FileManagerScreen() {
+fun FileManagerScreen(
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp)
+) {
     val context = LocalContext.current
     val store = remember { WebRootFileStore(WebRoot.ensure(context)) }
     val executor = remember { Executors.newSingleThreadExecutor() }
@@ -190,40 +199,51 @@ fun FileManagerScreen() {
         onDispose { }
     }
 
-    val feedback = errorMessage ?: statusMessage
-    val feedbackColor = if (errorMessage != null) {
-        MaterialTheme.colorScheme.error
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
-
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Web files",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f)
+            .padding(
+                start = Spacing.Inset,
+                end = Spacing.Inset,
+                top = contentPadding.calculateTopPadding() + Spacing.Base,
+                bottom = contentPadding.calculateBottomPadding() + Spacing.BottomBreathing
             )
-            if (isBusy) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.Snug)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Files",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                if (isBusy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                }
             }
+            Text(
+                text = "Everything here is served by the web host",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Button(
+
+        // The breadcrumb replaces a back arrow and a path string side by side. Each segment is its
+        // own target, so a deep path can be climbed without a back press per level.
+        Breadcrumb(
+            path = currentPath,
+            enabled = !isBusy,
+            onNavigate = { currentPath = it }
+        )
+
+        ButtonRow(modifier = Modifier.padding(top = Spacing.Tight)) {
+            PrimaryButton(
                 onClick = {
                     createName = "untitled.txt"
                     createContent = ""
@@ -231,67 +251,44 @@ fun FileManagerScreen() {
                 },
                 enabled = !isBusy
             ) {
-                Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(Modifier.width(6.dp))
-                Text("Text file")
+                ButtonContent(Icons.AutoMirrored.Filled.NoteAdd, "Text file")
             }
-            OutlinedButton(
+            SecondaryButton(
                 onClick = {
                     createName = "new-folder"
                     showCreateDirectoryDialog = true
                 },
                 enabled = !isBusy
             ) {
-                Icon(Icons.Default.Folder, contentDescription = null)
-                Spacer(Modifier.width(6.dp))
-                Text("Folder")
+                ButtonContent(Icons.Default.CreateNewFolder, "Folder")
             }
-            OutlinedButton(
+            SecondaryButton(
                 onClick = { openDocumentLauncher.launch(arrayOf("*/*")) },
                 enabled = !isBusy
             ) {
-                Text("Import")
+                ButtonContent(Icons.Default.UploadFile, "Import")
             }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = { currentPath = parentPath(currentPath) },
-                enabled = currentPath.isNotEmpty() && !isBusy
-            ) {
-                Icon(Icons.Default.ArrowUpward, contentDescription = "Go to parent directory")
+
+        val feedback = errorMessage ?: statusMessage
+        if (feedback != null) {
+            Box(modifier = Modifier.padding(top = Spacing.Base)) {
+                if (errorMessage != null) {
+                    ErrorNotice(message = feedback)
+                } else {
+                    Notice(message = feedback)
+                }
             }
-            Text(
-                text = displayPath(currentPath),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+        }
+
+        if (isLoading) {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = Spacing.Base)
             )
         }
-        if (feedback != null) {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = if (errorMessage != null) {
-                        MaterialTheme.colorScheme.errorContainer
-                    } else {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    }
-                )
-            ) {
-                Text(
-                    text = feedback,
-                    color = feedbackColor,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(12.dp)
-                )
-            }
-        }
-        if (isLoading) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        }
+
         if (!isLoading && entries.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -299,15 +296,25 @@ fun FileManagerScreen() {
                     .weight(1f),
                 contentAlignment = Alignment.Center
             ) {
-                Text("This directory is empty.", style = MaterialTheme.typography.bodyMedium)
+                EmptyState(
+                    title = if (currentPath.isEmpty()) "No files yet" else "This folder is empty",
+                    body = if (currentPath.isEmpty()) {
+                        "Create a text file, make a folder, or import something from this device. " +
+                            "Whatever is here is what the site serves."
+                    } else {
+                        "There is nothing in this folder."
+                    },
+                    icon = if (currentPath.isEmpty()) Icons.Default.FolderOpen else Icons.Default.Folder
+                )
             }
         } else {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(top = Spacing.Base)
                     .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 8.dp)
+                verticalArrangement = Arrangement.spacedBy(Spacing.Snug),
+                contentPadding = PaddingValues(bottom = Spacing.Snug)
             ) {
                 items(entries, key = { it.relativePath }) { entry ->
                     ManagedFileRow(
@@ -330,7 +337,7 @@ fun FileManagerScreen() {
             onDismissRequest = { showCreateTextDialog = false },
             title = { Text("Create text file") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.Base)) {
                     OutlinedTextField(
                         value = createName,
                         onValueChange = { createName = it },
@@ -458,6 +465,89 @@ fun FileManagerScreen() {
     }
 }
 
+/**
+ * The path as a row of segments, each one tappable.
+ *
+ * This replaces a back arrow beside a flat "WebRoot/a/b/c" string. That string had to be truncated
+ * on a narrow screen, and the part that got truncated was the end of the path, which is the part
+ * that says where you are. Segments scroll instead, and every level is reachable by tapping it.
+ */
+@Composable
+private fun Breadcrumb(
+    path: String,
+    enabled: Boolean,
+    onNavigate: (String) -> Unit
+) {
+    val segments = remember(path) {
+        if (path.isEmpty()) listOf("" to "Web root") else buildList {
+            add("" to "Web root")
+            var accumulated = ""
+            path.split('/').filter { it.isNotEmpty() }.forEach { segment ->
+                accumulated = if (accumulated.isEmpty()) segment else "$accumulated/$segment"
+                add(accumulated to segment)
+            }
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = Spacing.Base)
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = MaterialTheme.shapes.small
+            )
+            .padding(horizontal = Spacing.Tight, vertical = Spacing.Tight),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = { onNavigate(parentPath(path)) },
+            enabled = enabled && path.isNotEmpty(),
+            modifier = Modifier.size(36.dp)
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                contentDescription = "Go to the parent folder",
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            segments.forEachIndexed { index, (target, label) ->
+                if (index > 0) {
+                    Text(
+                        text = "/",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = Spacing.Tight)
+                    )
+                }
+                Text(
+                    text = label,
+                    style = if (index == segments.lastIndex) {
+                        MaterialTheme.typography.labelLarge
+                    } else {
+                        MaterialTheme.typography.bodySmall
+                    },
+                    color = if (index == segments.lastIndex) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clickable(enabled = enabled && target != path) { onNavigate(target) }
+                        .padding(horizontal = Spacing.Tight, vertical = Spacing.Tight)
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun ManagedFileRow(
     entry: ManagedFile,
@@ -466,54 +556,84 @@ private fun ManagedFileRow(
     onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
+    val isDirectory = entry.isDirectory
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            // The whole row opens a folder, but only a folder: tapping a file does nothing, so the
+            // row is not clickable for one and does not offer the ripple that would imply otherwise.
+            .clickable(enabled = enabled && isDirectory, onClick = onOpen)
+            .background(
+                color = MaterialTheme.colorScheme.surface,
+                shape = MaterialTheme.shapes.medium
+            )
+            .padding(
+                start = Spacing.Base,
+                end = Spacing.Snug,
+                top = Spacing.Base,
+                bottom = Spacing.Base
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = if (isDirectory) {
+                Icons.Default.Folder
+            } else {
+                Icons.AutoMirrored.Filled.InsertDriveFile
+            },
+            contentDescription = null,
+            tint = if (isDirectory) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.size(22.dp)
+        )
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .weight(1f)
+                .padding(horizontal = Spacing.Base)
+        ) {
+            Text(
+                text = entry.name,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = if (isDirectory) "Folder" else "${formatBytes(entry.sizeBytes)} · ${entry.type}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        IconButton(
+            onClick = onRename,
+            enabled = enabled,
+            colors = IconButtonDefaults.iconButtonColors(
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         ) {
             Icon(
-                imageVector = if (entry.isDirectory) Icons.Default.Folder else Icons.AutoMirrored.Filled.InsertDriveFile,
-                contentDescription = if (entry.isDirectory) "Folder" else "File",
-                tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary else Color.Gray
+                imageVector = Icons.Default.DriveFileRenameOutline,
+                contentDescription = "Rename ${entry.name}",
+                modifier = Modifier.size(20.dp)
             )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 12.dp)
-                    .clickable(enabled = enabled && entry.isDirectory, onClick = onOpen)
-            ) {
-                Text(
-                    text = entry.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = if (entry.isDirectory) {
-                        "Directory"
-                    } else {
-                        "${formatBytes(entry.sizeBytes)} · ${entry.type}"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            IconButton(
-                onClick = onRename,
-                enabled = enabled
-            ) {
-                Icon(Icons.Default.Edit, contentDescription = "Rename ${entry.name}")
-            }
-            IconButton(
-                onClick = onDelete,
-                enabled = enabled
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete ${entry.name}")
-            }
+        }
+        IconButton(
+            onClick = onDelete,
+            enabled = enabled,
+            colors = IconButtonDefaults.iconButtonColors(
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = "Delete ${entry.name}",
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 }
@@ -561,22 +681,4 @@ private fun importedFileName(displayName: String?, uri: Uri, mimeType: String?):
     return if ('.' in candidate) candidate else candidate + extension
 }
 
-private fun displayPath(path: String): String = if (path.isEmpty()) {
-    "WebRoot"
-} else {
-    "WebRoot/$path"
-}
-
 private fun parentPath(path: String): String = path.substringBeforeLast('/', "")
-
-internal fun formatBytes(bytes: Long): String {
-    if (bytes < 1024) return "$bytes B"
-    val units = arrayOf("KB", "MB", "GB", "TB")
-    var value = bytes.toDouble() / 1024.0
-    var index = 0
-    while (value >= 1024.0 && index < units.lastIndex) {
-        value /= 1024.0
-        index++
-    }
-    return String.format(Locale.getDefault(), "%.1f %s", value, units[index])
-}

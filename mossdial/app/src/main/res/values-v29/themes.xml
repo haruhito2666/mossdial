@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    `forceDarkAllowed` and the two contrast enforcers arrived in API 29.
+
+    Force dark is the important one: the scheme is light-only, so the platform is not allowed to
+    invert it. The contrast enforcers are turned off because with the bars transparent over the
+    app's own background, the platform's automatic scrim draws a translucent strip down each side
+    that the app never asked for and cannot align with.
+-->
+<resources>
+    <style name="Theme.Mossdial" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:forceDarkAllowed">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+    </style>
+</resources>

@@ -1,9 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The window draws behind the system bars: `MainActivity` calls `enableEdgeToEdge` with an
+    explicit light `SystemBarStyle`, and the `Scaffold` insets the content away from them. So this
+    theme supplies no bar colours, and it must not set a bar appearance of its own, because that
+    would fight the edge-to-edge treatment.
+
+    The attributes that only exist on newer platforms live in `values-v27` and `values-v29`
+    rather than here. Putting a `v27` attribute in the unqualified folder is not merely a lint
+    warning: on an API 26 device the platform reads the attribute id, does not know it, and the
+    resource fails to resolve.
+
+    `forceDarkAllowed` is the one that matters for correctness. The colour scheme is light-only by
+    design, and automatic darkening would otherwise invert the window background to near-black
+    underneath text that is still dark.
+-->
 <resources>
     <style name="Theme.Mossdial" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#2D7D3E</item>
-        <item name="android:navigationBarColor">#F7F9F7</item>
-        <item name="android:statusBarColor">#F7F9F7</item>
+        <item name="android:colorAccent">#44A857</item>
+        <item name="android:windowBackground">@color/background</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
 </resources>

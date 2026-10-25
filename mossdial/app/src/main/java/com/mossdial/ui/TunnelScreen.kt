@@ -4,19 +4,16 @@ import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -24,10 +21,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.mossdial.data.SecretStoreException
@@ -38,9 +34,38 @@ import com.mossdial.tunnel.TunnelManager
 import com.mossdial.tunnel.TunnelPhase
 import com.mossdial.tunnel.TunnelResolution
 import com.mossdial.tunnel.TunnelStatus
+import com.mossdial.ui.components.ButtonContent
+import com.mossdial.ui.components.ButtonRow
+import com.mossdial.ui.components.ChipRow
+import com.mossdial.ui.components.ErrorNotice
+import com.mossdial.ui.components.FieldLabel
+import com.mossdial.ui.components.LabeledValue
+import com.mossdial.ui.components.Notice
+import com.mossdial.ui.components.PrimaryButton
+import com.mossdial.ui.components.SecondaryButton
+import com.mossdial.ui.components.SectionCard
+import com.mossdial.ui.components.SectionColumn
+import com.mossdial.ui.components.SectionHeading
+import com.mossdial.ui.components.StatusPill
+import com.mossdial.ui.components.StatusTone
+import com.mossdial.ui.components.SupportingText
+import com.mossdial.ui.components.SwitchRow
+import com.mossdial.ui.components.screenContentPadding
+import com.mossdial.ui.theme.Spacing
 
+/**
+ * The optional Cloudflare tunnel.
+ *
+ * This screen was the one real layout bug in the app: it laid its controls out in a plain `Column`
+ * with no scroll, so on a short screen the token field and the Start and Stop buttons sat below the
+ * fold with no way to reach them. It is now a lazy column inside the same scaffold as every other
+ * screen, so the whole form is reachable at any screen height.
+ */
 @Composable
-fun TunnelScreen(modifier: Modifier = Modifier) {
+fun TunnelScreen(
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp)
+) {
     val context = LocalContext.current
     val settings = remember { TunnelSettings(context) }
     var enabled by remember { mutableStateOf(settings.enabled) }
@@ -49,6 +74,7 @@ fun TunnelScreen(modifier: Modifier = Modifier) {
     var tokenText by remember { mutableStateOf("") }
     var tokenStored by remember { mutableStateOf(settings.hasToken()) }
     var notice by remember { mutableStateOf("") }
+    var noticeIsError by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf("") }
     var status by remember { mutableStateOf(TunnelManager.snapshot()) }
 
@@ -61,81 +87,98 @@ fun TunnelScreen(modifier: Modifier = Modifier) {
             }
         }
         handler.post(poll)
-        onDispose { handler.removeCallbacks(poll) }
+        onDispose { handler.removeCallbacksAndMessages(null) }
     }
 
     fun saveToken() {
-        notice = try {
+        try {
             settings.storeToken(tokenText)
             tokenStored = true
             tokenText = ""
             preview = ""
-            "Token stored encrypted"
+            notice = "Token stored encrypted"
+            noticeIsError = false
         } catch (error: IllegalArgumentException) {
-            error.message ?: "That token was rejected"
+            notice = error.message ?: "That token was rejected"
+            noticeIsError = true
         } catch (_: SecretStoreException) {
-            "Secure storage is unavailable on this device"
+            notice = "Secure storage is unavailable on this device"
+            noticeIsError = true
         }
     }
 
     fun startTunnel() {
         if (!enabled) {
             notice = "Enable the tunnel first"
+            noticeIsError = true
             return
         }
         when (val resolved = settings.resolve()) {
             is TunnelResolution.Invalid -> {
                 notice = resolved.reason
+                noticeIsError = true
                 preview = ""
             }
             is TunnelResolution.Ready -> {
                 // The real command line carries the token, so only the redacted form is shown.
                 preview = TunnelCommand.describe(resolved.config)
                 notice = ""
+                noticeIsError = false
                 TunnelManager.start(resolved.config)
                 status = TunnelManager.snapshot()
             }
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = screenContentPadding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(Spacing.Gap)
     ) {
-        Text("Public access", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-        Text("Optional Cloudflare tunnel", style = MaterialTheme.typography.bodyLarge)
-        Text(
-            "Mossdial does not ship a tunnel binary. Point the app at a cloudflared executable you " +
-                "already trust and give it a Cloudflare remotely-managed tunnel token. The token is " +
-                "stored encrypted under a key held by the Android Keystore and is never written to the log.",
-            style = MaterialTheme.typography.bodySmall
-        )
-        Text(
-            "A remotely-managed tunnel is configured in your Cloudflare dashboard, not here. Map " +
-                "only this device's site port there. The local AI API is on a different port and " +
-                "publishing it would put a model on the public internet behind one token.",
-            style = MaterialTheme.typography.bodySmall
-        )
-        Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = {
-                            enabled = it
-                            settings.enabled = it
-                            notice = ""
-                        },
-                        enabled = !status.isActive
-                    )
-                    Spacer(Modifier.padding(horizontal = 8.dp))
-                    Text("Enable tunnel")
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.Snug)) {
+                Text(
+                    text = "Public access",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                SupportingText("Optional Cloudflare tunnel, using a binary you supply")
+            }
+        }
+
+        if (notice.isNotEmpty()) {
+            item {
+                if (noticeIsError) {
+                    ErrorNotice(message = notice)
+                } else {
+                    Notice(message = notice)
                 }
+            }
+        }
+
+        item {
+            SectionCard {
+                SectionHeading(
+                    title = "Tunnel",
+                    subtitle = "A remotely-managed tunnel is configured in your Cloudflare dashboard"
+                )
+
+                SwitchRow(
+                    checked = enabled,
+                    onCheckedChange = {
+                        enabled = it
+                        settings.enabled = it
+                        notice = ""
+                    },
+                    title = "Enable tunnel",
+                    summary = if (enabled) {
+                        "Mossdial runs the cloudflared executable you name, with the token you store"
+                    } else {
+                        "Off. The site is reachable only on this device or the local network"
+                    },
+                    enabled = !status.isActive
+                )
+
                 OutlinedTextField(
                     value = path,
                     onValueChange = { value ->
@@ -144,12 +187,16 @@ fun TunnelScreen(modifier: Modifier = Modifier) {
                         settings.executablePath = path
                     },
                     label = { Text("cloudflared executable") },
-                    supportingText = { Text("Absolute path, for example /data/local/tmp/cloudflared") },
+                    supportingText = {
+                        Text("Absolute path, for example /data/local/tmp/cloudflared")
+                    },
                     singleLine = true,
                     enabled = !status.isActive,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+
+                FieldLabel("Protocol")
+                ChipRow {
                     TunnelConfig.ALLOWED_PROTOCOLS.forEach { option ->
                         FilterChip(
                             selected = protocol == option,
@@ -158,10 +205,12 @@ fun TunnelScreen(modifier: Modifier = Modifier) {
                                 settings.protocol = option
                             },
                             enabled = !status.isActive,
-                            label = { Text(option) }
+                            label = { Text(option) },
+                            shape = MaterialTheme.shapes.small
                         )
                     }
                 }
+
                 OutlinedTextField(
                     value = tokenText,
                     onValueChange = { value ->
@@ -178,67 +227,115 @@ fun TunnelScreen(modifier: Modifier = Modifier) {
                     enabled = !status.isActive,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
+
+                ButtonRow {
+                    PrimaryButton(
+                        onClick = { startTunnel() },
+                        enabled = enabled && !status.isActive
+                    ) {
+                        ButtonContent(Icons.Default.PlayArrow, "Start tunnel")
+                    }
+                    SecondaryButton(
+                        onClick = {
+                            TunnelManager.stop()
+                            status = TunnelManager.snapshot()
+                        },
+                        enabled = status.isActive
+                    ) {
+                        ButtonContent(Icons.Default.Stop, "Stop")
+                    }
+                }
+
+                ButtonRow {
+                    SecondaryButton(
                         onClick = { saveToken() },
                         enabled = !status.isActive && tokenText.isNotBlank()
-                    ) { Text("Save token") }
-                    OutlinedButton(
+                    ) {
+                        Text("Save token", style = MaterialTheme.typography.labelLarge)
+                    }
+                    SecondaryButton(
                         onClick = {
                             settings.clearToken()
                             tokenStored = false
                             tokenText = ""
                             preview = ""
                             notice = "Stored token removed"
+                            noticeIsError = false
                         },
                         enabled = !status.isActive && tokenStored
-                    ) { Text("Clear") }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { startTunnel() }, enabled = enabled && !status.isActive) {
-                        Text("Start tunnel")
+                    ) {
+                        Text("Clear", style = MaterialTheme.typography.labelLarge)
                     }
-                    OutlinedButton(
-                        onClick = {
-                            TunnelManager.stop()
-                            status = TunnelManager.snapshot()
-                        },
-                        enabled = status.isActive
-                    ) { Text("Stop") }
                 }
             }
         }
-        TunnelStatusCard(status)
-        if (notice.isNotEmpty()) {
-            Text(notice, style = MaterialTheme.typography.bodySmall)
-        }
-        if (preview.isNotEmpty()) {
-            Text(preview, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
 
-@Composable
-private fun TunnelStatusCard(status: TunnelStatus) {
-    Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                when (status.phase) {
-                    TunnelPhase.Stopped -> "Stopped"
-                    TunnelPhase.Starting -> "Starting"
-                    TunnelPhase.Running -> "Connected"
-                    TunnelPhase.Failed -> "Not connected"
-                },
-                fontWeight = FontWeight.Bold
-            )
-            if (status.detail.isNotEmpty()) {
-                Text(status.detail, style = MaterialTheme.typography.bodySmall)
+        item {
+            SectionCard {
+                SectionHeading(
+                    title = "Status",
+                    subtitle = "What cloudflared last reported"
+                )
+                StatusPill(
+                    label = when (status.phase) {
+                        TunnelPhase.Stopped -> "Stopped"
+                        TunnelPhase.Starting -> "Starting"
+                        TunnelPhase.Running -> "Connected"
+                        TunnelPhase.Failed -> "Not connected"
+                    },
+                    tone = when (status.phase) {
+                        TunnelPhase.Stopped -> StatusTone.Idle
+                        TunnelPhase.Starting -> StatusTone.Starting
+                        TunnelPhase.Running -> StatusTone.Live
+                        TunnelPhase.Failed -> StatusTone.Error
+                    }
+                )
+                if (status.detail.isNotEmpty()) {
+                    LabeledValue(label = "Detail", value = status.detail)
+                }
+                if (status.diagnostic.isNotEmpty()) {
+                    LabeledValue(
+                        label = "Diagnostic",
+                        value = status.diagnostic,
+                        monospace = true
+                    )
+                }
             }
-            if (status.diagnostic.isNotEmpty()) {
-                Text(status.diagnostic, style = MaterialTheme.typography.bodySmall)
+        }
+
+        if (preview.isNotEmpty()) {
+            item {
+                // A read-out, not a control: the redacted command sits on the background rather
+                // than in a box, because the person reading it has nothing to press on it.
+                SectionColumn {
+                    SectionHeading(
+                        title = "Command",
+                        subtitle = "With the token redacted, as it is shown everywhere"
+                    )
+                    Text(
+                        text = preview,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        item {
+            SectionColumn {
+                SectionHeading(title = "Before you turn this on")
+                SupportingText(
+                    text = "Map only this device's site port in Cloudflare. The local AI API is on a " +
+                        "different port, and publishing it would put a model on the public internet " +
+                        "behind one token. Mossdial cannot enforce that for you: the tunnel " +
+                        "configuration lives in your Cloudflare account, not in the app."
+                )
+                SupportingText(
+                    text = "No tunnel binary and no Cloudflare SDK is bundled. The app runs the " +
+                        "cloudflared executable you name, by absolute path, with no shell, and reads " +
+                        "its output with a bound. Everything works without one."
+                )
             }
         }
     }
