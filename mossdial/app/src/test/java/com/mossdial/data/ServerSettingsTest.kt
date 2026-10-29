@@ -41,6 +41,7 @@ class ServerSettingsTest {
         assertFalse(settings.allowLan)
         assertFalse(settings.enableSsl)
         assertFalse(settings.autoStart)
+        assertFalse(settings.desiredRunning)
         assertEquals("127.0.0.1", settings.bindAddress())
     }
 
@@ -88,5 +89,21 @@ class ServerSettingsTest {
         }
 
         assertFalse(ServerSettings(FakePreferenceStore(values)).autoStart)
+    }
+
+    @Test
+    fun theDesiredRunningIntentIsSeparateFromAutoStartAndSurvivesAReopen() {
+        val values = mutableMapOf<String, Any>()
+        val settings = ServerSettings(FakePreferenceStore(values))
+        assertFalse(settings.desiredRunning)
+
+        settings.desiredRunning = true
+
+        val reopened = ServerSettings(FakePreferenceStore(values))
+        assertTrue(reopened.desiredRunning)
+        assertFalse(reopened.autoStart)
+
+        reopened.desiredRunning = false
+        assertFalse(ServerSettings(FakePreferenceStore(values)).desiredRunning)
     }
 }

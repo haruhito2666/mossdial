@@ -6,10 +6,10 @@ import java.io.File
 /**
  * Settings and the credential for the local AI API.
  *
- * The port and the LAN switch are plain preferences, normalised through [ServerSettingsRules] so
- * a value written by an older build, restored from a backup or forwarded in an intent is always a
- * port the listener can bind. The listener defaults to its own port, 8081, because the API is a
- * separate socket from the file server.
+ * The port, the LAN switch and the HTTPS switch are plain preferences, normalised through
+ * [ServerSettingsRules] so a value written by an older build, restored from a backup or forwarded in
+ * an intent is always a port the listener can bind. The listener defaults to its own port, 8081,
+ * because the API is a separate socket from the file server.
  *
  * The bearer token is the exception. It is only ever written to the Keystore-backed [SecretStore],
  * under [TOKEN_SLOT], and sealed with the key named [KEY_ALIAS]. Both are deliberately different
@@ -33,6 +33,16 @@ class AiApiSettings(
     var allowLan: Boolean
         get() = store.getBoolean(KEY_ALLOW_LAN, false)
         set(value) = store.putBoolean(KEY_ALLOW_LAN, value)
+
+    /**
+     * Whether the API listener speaks HTTPS.
+     *
+     * Off by default because the certificate is self-signed: a client has to be told to trust it
+     * either way, so turning it on is a choice rather than a surprise that breaks a working client.
+     */
+    var enableTls: Boolean
+        get() = store.getBoolean(KEY_ENABLE_TLS, false)
+        set(value) = store.putBoolean(KEY_ENABLE_TLS, value)
 
     /** The address the API socket binds for the current LAN setting. */
     fun bindAddress(): String = ServerSettingsRules.bindAddress(allowLan)
@@ -72,5 +82,6 @@ class AiApiSettings(
 
         private const val KEY_PORT = "port"
         private const val KEY_ALLOW_LAN = "allow_lan"
+        private const val KEY_ENABLE_TLS = "enable_tls"
     }
 }

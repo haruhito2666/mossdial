@@ -64,7 +64,13 @@ class EncryptedSecretStore(
         } catch (_: IOException) {
             return null
         }
-        val key = keyProvider.key()
+        val key = try {
+            keyProvider.key()
+        } catch (_: Exception) {
+            // The blob may still be fine: a Keystore that is temporarily unavailable (locked,
+            // being upgraded) must not be treated as a wrong key and erase the secret.
+            return null
+        }
         return try {
             val plaintext = SecretBox.open(key, envelope, aad(name))
             String(plaintext, StandardCharsets.UTF_8)

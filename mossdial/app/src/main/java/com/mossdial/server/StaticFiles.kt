@@ -1,6 +1,7 @@
 package com.mossdial.server
 
 import java.io.File
+import java.io.IOException
 import java.util.Locale
 
 object StaticFiles {
@@ -29,11 +30,22 @@ object StaticFiles {
         if (!requested.exists()) return null
         if (!requested.isDirectory) return requested.takeIf { it.isFile }
         val index = File(requested, "index.html")
-        return index.takeIf { it.isFile }
+        if (!index.isFile) return null
+        // PathPolicy canonicalised the directory, but the child is a separate path and can be a
+        // symlink. Re-check it, or a link named index.html can serve a file outside the web root.
+        return index.takeIf { isInsideRoot(root, it) }
     }
 
     fun contentType(file: File): String {
         val extension = file.extension.lowercase(Locale.ROOT)
         return contentTypes[extension] ?: "application/octet-stream"
+    }
+
+    private fun isInsideRoot(root: File, file: File): Boolean = try {
+        val rootPath = root.canonicalFile.toPath()
+        val filePath = file.canonicalFile.toPath()
+        filePath != rootPath && filePath.startsWith(rootPath)
+    } catch (_: IOException) {
+        false
     }
 }

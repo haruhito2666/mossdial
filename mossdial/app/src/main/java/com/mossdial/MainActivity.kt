@@ -11,12 +11,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -61,9 +61,10 @@ import com.mossdial.ui.AiScreen
 import com.mossdial.ui.FileManagerScreen
 import com.mossdial.ui.OnboardingScreen
 import com.mossdial.ui.ServerScreen
+import com.mossdial.ui.ServerSettingsScreen
 import com.mossdial.ui.SettingsScreen
 import com.mossdial.ui.TunnelScreen
-import com.mossdial.ui.theme.CardLarge
+import com.mossdial.ui.theme.BarShape
 import com.mossdial.ui.theme.MossdialTheme
 import com.mossdial.ui.theme.Spacing
 import com.mossdial.tunnel.TunnelManager
@@ -90,10 +91,10 @@ private enum class Destination(
 }
 
 /**
- * The height of the navigation bar's box: room for the 24dp icon in its pill, its label, and the
- * 48dp the thumb needs, with the box's own breathing around them.
+ * The height of the navigation bar's box: room for the 26dp icon in its pill, its 13sp label, and
+ * the 48dp the thumb needs, with the box's own breathing around them.
  */
-private val NavBarHeight = 68.dp
+private val NavBarHeight = 76.dp
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -140,6 +141,10 @@ class MainActivity : ComponentActivity() {
 
         var selected by rememberSaveable { mutableIntStateOf(0) }
         val destination = Destination.entries[selected]
+        // The server's settings are a page of their own, opened from the server tab or from the
+        // settings tab. It is an overlay over the tabs rather than a sixth destination: switching
+        // tabs closes it, and the page itself owns the Back handling that closes it.
+        var serverSettingsOpen by rememberSaveable { mutableStateOf(false) }
 
         DisposableEffect(Unit) {
             val listener: (TunnelStatus) -> Unit = { ServerWidget.refresh(context) }
@@ -160,14 +165,16 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
-                        .padding(start = Spacing.Inset, end = Spacing.Inset, bottom = Spacing.Base)
+                        .padding(start = Spacing.Inset, end = Spacing.Inset, bottom = Spacing.Snug)
                 ) {
                     Surface(
-                        shape = CardLarge,
+                        shape = BarShape,
                         color = MaterialTheme.colorScheme.surface,
-                        // The same hairline the cards use, so bar, cards and background read as one
-                        // material rather than three blues-grey tones trying to agree.
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        // The bar is white on white, so it is separated by a soft standing shadow
+                        // rather than by an outline: a hairline would draw the four straight
+                        // lines this bar is deliberately without, and the shadow never touches
+                        // the thumb the way a tap ripple would.
+                        shadowElevation = 8.dp
                     ) {
                         Row(
                             modifier = Modifier
@@ -175,11 +182,18 @@ class MainActivity : ComponentActivity() {
                                 .height(NavBarHeight)
                                 .padding(horizontal = Spacing.Snug, vertical = Spacing.Tight)
                         ) {
+                            // Each destination owns an equal fifth of the bar and centres itself
+                            // in it, so the five are neither bunched at the start nor drifting
+                            // apart by their differences in width.
                             Destination.entries.forEachIndexed { index, item ->
                                 DestinationItem(
                                     destination = item,
                                     selected = index == selected,
-                                    onClick = { selected = index }
+                                    onClick = {
+                                        selected = index
+                                        serverSettingsOpen = false
+                                    },
+                                    modifier = Modifier.weight(1f)
                                 )
                             }
                         }
@@ -187,18 +201,39 @@ class MainActivity : ComponentActivity() {
                 }
             }
         ) { innerPadding ->
-            when (destination) {
-                Destination.Server -> ServerScreen(
-                    contentPadding = innerPadding,
-                    onOpenSettings = { selected = Destination.entries.indexOf(Destination.Settings) }
-                )
-                Destination.Files -> FileManagerScreen(contentPadding = innerPadding)
-                Destination.Tunnel -> TunnelScreen(contentPadding = innerPadding)
-                Destination.Ai -> AiScreen(contentPadding = innerPadding)
-                Destination.Settings -> SettingsScreen(
-                    contentPadding = innerPadding,
-                    onOpenTunnel = { selected = Destination.entries.indexOf(Destination.Tunnel) }
-                )
+            // The Scaffold's insets are applied to the viewport, not to the scrolling content: a
+            // lazy list's contentPadding only makes room at the ends of its scroll range, so items
+            // passing through the middle of the screen would draw under the status bar and behind
+            // the floating bar — and, through the bar's own bottom margin, in the gesture strip
+            // below it. Padding the box clips the page cleanly above the bar instead.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                // The screens no longer need the window insets themselves; the box has taken them.
+                val pageInsets = PaddingValues(0.dp)
+                if (serverSettingsOpen) {
+                    ServerSettingsScreen(
+                        contentPadding = pageInsets,
+                        onBack = { serverSettingsOpen = false }
+                    )
+                } else {
+                    when (destination) {
+                        Destination.Server -> ServerScreen(
+                            contentPadding = pageInsets,
+                            onOpenSettings = { serverSettingsOpen = true }
+                        )
+                        Destination.Files -> FileManagerScreen(contentPadding = pageInsets)
+                        Destination.Tunnel -> TunnelScreen(contentPadding = pageInsets)
+                        Destination.Ai -> AiScreen(contentPadding = pageInsets)
+                        Destination.Settings -> SettingsScreen(
+                            contentPadding = pageInsets,
+                            onOpenTunnel = { selected = Destination.entries.indexOf(Destination.Tunnel) },
+                            onOpenAi = { selected = Destination.entries.indexOf(Destination.Ai) }
+                        )
+                    }
+                }
             }
         }
     }
@@ -239,9 +274,9 @@ private fun DestinationItem(
                 indication = null,
                 onClick = onClick
             )
-            .padding(vertical = Spacing.Tight + 1.dp),
+            .padding(vertical = Spacing.Tight),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Spacing.Tiniest)
+        verticalArrangement = Arrangement.spacedBy(Spacing.Tight)
     ) {
         Surface(
             shape = RoundedCornerShape(percent = 50),
@@ -256,8 +291,8 @@ private fun DestinationItem(
                 contentDescription = destination.label,
                 tint = tint,
                 modifier = Modifier
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .size(24.dp)
+                    .padding(horizontal = 16.dp, vertical = 5.dp)
+                    .size(26.dp)
             )
         }
         Text(

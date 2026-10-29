@@ -19,10 +19,8 @@ import androidx.compose.material.icons.filled.Https
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,33 +31,31 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import com.mossdial.data.ServerSettingsRules
+import com.mossdial.ui.components.ButtonContent
 import com.mossdial.ui.components.ButtonRow
+import com.mossdial.ui.components.MicroLabelText
+import com.mossdial.ui.components.PrimaryButton
+import com.mossdial.ui.components.SecondaryButton
 import com.mossdial.ui.theme.Spacing
 
 private val PAGES = listOf(
     OnboardingPage(
         icon = Icons.Default.Dns,
         title = "Host a site from this phone",
-        body = "Mossdial runs a small web server on this device and serves the files you keep in " +
-            "its private storage. Start it, then open the address it shows from any browser on the " +
-            "same network."
+        body = "Mossdial serves a folder from this device. Start it, then open the address it " +
+            "shows in any browser on this network."
     ),
     OnboardingPage(
         icon = Icons.Default.Https,
         title = "Choose who can reach it",
-        body = "By default the server binds ${ServerSettingsRules.LOOPBACK_ADDRESS}, so only this " +
-            "device can reach it. Turning on LAN access binds ${ServerSettingsRules.ANY_ADDRESS} and " +
-            "makes your site reachable by every device on the same network. HTTPS uses a generated " +
-            "app-private certificate, so browsers will warn that the certificate is not trusted."
+        body = "By default only this device can reach it. LAN access opens it to this network. " +
+            "HTTPS uses a self-signed certificate, so browsers will warn."
     ),
     OnboardingPage(
         icon = Icons.Default.Widgets,
         title = "Add a home screen widget",
-        body = "The widget shows whether the server is running and can start or stop it without " +
-            "opening the app. You can also let the server come back after a restart from Settings, " +
-            "and optionally expose it through a Cloudflare tunnel using a token that is stored " +
-            "encrypted under an Android Keystore key."
+        body = "The widget starts and stops the server without opening the app. Settings can bring " +
+            "it back after a reboot, and an optional Cloudflare tunnel can publish it."
     )
 )
 
@@ -90,17 +86,13 @@ fun OnboardingScreen(modifier: Modifier = Modifier, onFinished: () -> Unit) {
             .padding(Spacing.Inset),
         verticalArrangement = Arrangement.spacedBy(Spacing.Spacious)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(Spacing.Tight)) {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.Snug)) {
             Text(
                 text = "Mossdial",
-                style = MaterialTheme.typography.headlineLarge,
+                style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            Text(
-                text = "A minute to set up",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            MicroLabelText("A minute to set up")
         }
 
         // Page dots rather than a bar: three fixed pages, and a dot says "three" in a way a
@@ -132,7 +124,7 @@ fun OnboardingScreen(modifier: Modifier = Modifier, onFinished: () -> Unit) {
                 imageVector = current.icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier.size(48.dp)
             )
             Text(
                 text = current.title,
@@ -149,22 +141,17 @@ fun OnboardingScreen(modifier: Modifier = Modifier, onFinished: () -> Unit) {
 
         ButtonRow {
             if (page > 0) {
-                OutlinedButton(onClick = { page -= 1 }) {
+                SecondaryButton(onClick = { page -= 1 }) {
                     Text("Back", style = MaterialTheme.typography.labelLarge)
                 }
             }
-            Button(
+            PrimaryButton(
                 onClick = { if (isLast) onFinished() else page += 1 },
                 modifier = Modifier.weight(1f, fill = false)
             ) {
-                Text(
-                    text = if (isLast) "Get started" else "Next",
-                    style = MaterialTheme.typography.labelLarge
-                )
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    modifier = Modifier.padding(start = Spacing.Snug).size(18.dp)
+                ButtonContent(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    if (isLast) "Get started" else "Next"
                 )
             }
         }

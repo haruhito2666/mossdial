@@ -28,6 +28,18 @@ class ServerSettings(private val store: PreferenceStore) {
         set(value) = store.putBoolean(KEY_ENABLE_SSL, value)
 
     /**
+     * Whether the user wants the server up right now.
+     *
+     * This is the immediate intent, not the reboot consent of [autoStart]. It is set when a start
+     * is accepted and cleared by an explicit stop, and it survives process death so a service the
+     * system restarted (`START_STICKY`, which delivers a null intent) knows to bring the server
+     * back rather than shut down. A crash therefore restores the server without any user action.
+     */
+    var desiredRunning: Boolean
+        get() = store.getBoolean(KEY_DESIRED_RUNNING, false)
+        set(value) = store.putBoolean(KEY_DESIRED_RUNNING, value)
+
+    /**
      * Whether a boot receiver may bring the server back without the user asking.
      *
      * Defaults to off and is only ever turned on from the settings screen, which is what
@@ -63,6 +75,7 @@ class ServerSettings(private val store: PreferenceStore) {
         private const val KEY_ALLOW_LAN = "allow_lan"
         private const val KEY_ENABLE_SSL = "enable_ssl"
         private const val KEY_AUTO_START = "auto_start"
+        private const val KEY_DESIRED_RUNNING = "desired_running"
         private const val KEY_REQUEST_LOGGING = "request_logging"
         private const val KEY_LOG_LINES = "request_log_lines"
 

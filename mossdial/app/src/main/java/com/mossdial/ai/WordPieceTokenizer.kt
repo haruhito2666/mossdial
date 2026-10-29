@@ -21,7 +21,15 @@ class WordPieceVocabulary private constructor(
     private val ids: Map<String, Int>,
     val unknownId: Int,
     val classId: Int,
-    val separatorId: Int
+    val separatorId: Int,
+    /**
+     * The longest token in this vocabulary, in characters.
+     *
+     * WordPiece matching is bounded by this: no substring longer than a real token can match, so
+     * the matcher never has to try one. Without the bound a long word turns the search into a
+     * quadratic scan over the whole word.
+     */
+    val maxTokenChars: Int
 ) {
     val size: Int get() = ids.size
 
@@ -88,7 +96,8 @@ class WordPieceVocabulary private constructor(
             val unknown = ids[UNKNOWN] ?: throw VocabularyException("The vocabulary has no $UNKNOWN token")
             val classToken = ids[CLASS] ?: throw VocabularyException("The vocabulary has no $CLASS token")
             val separator = ids[SEPARATOR] ?: throw VocabularyException("The vocabulary has no $SEPARATOR token")
-            return WordPieceVocabulary(ids, unknown, classToken, separator)
+            val maxTokenChars = ids.keys.maxOfOrNull { it.length } ?: MAX_TOKEN_CHARS
+            return WordPieceVocabulary(ids, unknown, classToken, separator, maxTokenChars)
         }
     }
 }
@@ -164,9 +173,10 @@ class WordPieceTokenizer(
 
     fun encode(text: String): OnnxTokenBatch {
         val pieces = ArrayList<Int>(DEFAULT_CAPACITY)
+        val budget = WordPieceVocabulary.MAX_SEQUENCE_LENGTH - 2
         for (word in basicTokens(text)) {
-            appendWordPiece(word, pieces)
-            if (pieces.size >= WordPieceVocabulary.MAX_SEQUENCE_LENGTH) break
+            appendWordPiece(word, pieces, budget)
+            if (pieces.size >= budget) break
         }
         return assemble(pieces)
     }
@@ -204,27 +214,45 @@ class WordPieceTokenizer(
         return OnnxTokenBatch.of(ids, mask, types)
     }
 
-    private fun appendWordPiece(word: String, pieces: MutableList<Int>) {
+    private fun appendWordPiece(word: String, pieces: MutableList<Int>, limit: Int = Int.MAX_VALUE) {
+        val remaining = limit - pieces.size
+        if (remaining <= 0) return
         val collected = ArrayList<String>()
-        if (wordPiece(word, collected)) {
+        if (wordPiece(word, collected, remaining)) {
             collected.forEach { pieces += vocabulary.idOf(it) }
         } else {
             pieces += vocabulary.unknownId
         }
     }
 
-    /** Longest piece first, continuation pieces marked with `##`. False when nothing matched. */
-    private fun wordPiece(word: String, out: MutableList<String>): Boolean {
+    /**
+     * Longest piece first, continuation pieces marked with `##`. False when nothing matched.
+     *
+     * The candidate search is bounded twice: a piece is never longer than [maxTokenChars] (or two
+     * characters shorter when it carries the `##` prefix), and [maxPieces] stops the walk once the
+     * caller's sequence budget is full. Both bounds matter for a single enormous word: the first
+     * makes the search linear in the word length, and the second keeps it from accumulating more
+     * pieces than the encoder can ever take.
+     */
+    private fun wordPiece(word: String, out: MutableList<String>, maxPieces: Int = Int.MAX_VALUE): Boolean {
         if (word.isEmpty()) {
+            return true
+        }
+        if (maxPieces <= 0) {
             return true
         }
         var start = 0
         val collected = ArrayList<String>()
-        while (start < word.length) {
-            var end = word.length
+        while (start < word.length && collected.size < maxPieces) {
+            val maxCandidate = if (start > 0) {
+                (vocabulary.maxTokenChars - 2).coerceAtLeast(1)
+            } else {
+                vocabulary.maxTokenChars
+            }
+            var end = minOf(word.length, start + maxCandidate)
             var match: String? = null
             while (start < end) {
-                val candidate = if (start > 0) word.substring(start, end) else word.substring(0, end)
+                val candidate = word.substring(start, end)
                 val piece = if (start > 0) "##$candidate" else candidate
                 if (vocabulary.contains(piece)) {
                     match = piece

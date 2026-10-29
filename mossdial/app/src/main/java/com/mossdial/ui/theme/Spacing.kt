@@ -4,50 +4,59 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * The spacing scale.
+ * The spacing scale: one ruler for the whole app.
  *
- * Every gap, inset and padding in the app is one of these. That is the whole mechanism behind
- * "everything lines up": when two adjacent cards are separated by [Gap] and a card's own contents
- * are inset by [Inset], the eye reads one continuous rhythm instead of a pile of numbers that
- * happen to be close to each other.
+ * Every distance between two things is one of these values, and every one of them is a multiple of
+ * four, the grid the platform's own touch targets and system insets sit on. A scale only produces
+ * alignment if it is also used the same way everywhere, so the rules below are part of the scale:
  *
- * The steps are on a 4dp grid, which is the grid the platform's own metrics use, so a gap here lands
- * on the same rhythm as a touch target or a status bar inset.
+ * 1. **Horizontal.** Page content begins and ends exactly [Inset] from the window edge. There is no
+ *    second horizontal value: shaded blocks, forms, lists, headers and buttons all share the same
+ *    left edge, which is what makes a page read as set by one hand. A block's own internal padding
+ *    is [Gap], never a number picked per screen.
+ * 2. **Vertical.** A page is a stack of sections separated by full-width [Band] strips. Each
+ *    section is padded [Section] above and below its content, and the bands carry no margin of
+ *    their own. The distance between two sections is therefore always Section + Band + Section —
+ *    identical everywhere, regardless of what each section contains.
+ * 3. **Inside a section.** [Gap] between one control and the next, [Base] between closely related
+ *    rows, [Snug] between a label and the value it names, [Tight] between an icon and its word.
  */
 object Spacing {
     /** Nothing at all. Named so the absence of a gap is a decision rather than a zero. */
     val None: Dp = 0.dp
 
-    /** Between an icon and the glyph next to it, or a label and its value. */
-    val Tiniest: Dp = 2.dp
-
-    /** Inside a chip, between two chips, or above a control. */
+    /** An icon and the word beside it, or two figures on one line. */
     val Tight: Dp = 4.dp
 
-    /** Between related rows inside one card. */
+    /** A label and the value it names, or the lines of one small group. */
     val Snug: Dp = 8.dp
 
-    /** Between a control and the label describing it. */
+    /** Two closely related rows, or a field's own inner rhythm. */
     val Base: Dp = 12.dp
 
-    /** Between two cards, or between a heading and the content under it. */
+    /** One control and the next; also the padding inside every shaded block. */
     val Gap: Dp = 16.dp
 
-    /** Between groups of cards on a screen. */
-    val Spacious: Dp = 20.dp
-
-    /** Screen edge to first content. Every screen uses this, so titles align across tabs. */
+    /**
+     * The screen gutter. The only horizontal value on a page: content, headers and controls all
+     * start and end here.
+     */
     val Inset: Dp = 20.dp
 
     /**
-     * Inside a card, and inside the navigation bar's box. Same as [Inset] on purpose: the card
-     * gutter and the screen gutter are the same distance, which is the proportion the eye reads
-     * as "everything on this screen was set by one ruler".
+     * The vertical counterpart of [Inset], and deliberately the same number: sections are padded
+     * this much above and below, so the page's vertical and horizontal gutters are one measurement.
      */
-    val CardInset: Dp = 20.dp
+    val Section: Dp = 20.dp
+
+    /** The widest step, for the rare block that needs more air than a section gap. */
+    val Spacious: Dp = 24.dp
+
+    /** The height of the full-bleed separator between sections. */
+    val Band: Dp = 10.dp
 
     /** Space reserved below the last element so it clears the navigation bar. */
-    val BottomBreathing: Dp = 24.dp
+    val BottomBreathing: Dp = 32.dp
 
     /** The height a pressable row occupies, at least the platform's 48dp touch target. */
     val TouchTarget: Dp = 48.dp

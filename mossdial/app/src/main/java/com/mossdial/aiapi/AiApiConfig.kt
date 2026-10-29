@@ -11,6 +11,7 @@ package com.mossdial.aiapi
 data class AiApiConfig(
     val port: Int = 8081,
     val bindAddress: String = "127.0.0.1",
+    val enableTls: Boolean = false,
     val maxConnections: Int = 8,
     val workerThreads: Int = 2,
     val readTimeoutMillis: Int = 15_000,

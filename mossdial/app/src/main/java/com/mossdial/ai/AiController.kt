@@ -98,6 +98,22 @@ class AiController(
     var onnxStatus by mutableStateOf("Checking ONNX Runtime…")
         private set
 
+    /**
+     * What the worker found when it probed each runtime.
+     *
+     * These are state rather than calls into the runtimes because both probes are native: reading
+     * `OrtEnvironment` creates the ONNX environment and touching `LlamaBridge` loads the JNI
+     * library. Composition must never do either.
+     */
+    var llamaAvailable by mutableStateOf(false)
+        private set
+
+    var onnxAvailable by mutableStateOf(false)
+        private set
+
+    var runtimesChecked by mutableStateOf(false)
+        private set
+
     var loadedModel by mutableStateOf<String?>(null)
         private set
 
@@ -136,10 +152,13 @@ class AiController(
     val ggufModels: List<StoredModel> get() = models.filter { it.kind == ModelKind.GGUF }
     val onnxModels: List<StoredModel> get() = models.filter { it.kind == ModelKind.ONNX }
 
-    val canChat: Boolean get() = loadedModel != null && !busy && llama.isAvailable()
+    val canChat: Boolean get() = loadedModel != null && !busy && llamaAvailable
+
+    /** True when a selected encoder and its vocabulary exist, whether or not the worker is busy. */
+    val embeddingReady: Boolean get() = encoder?.supported == true && tokenizer != null
 
     /** True when a selected encoder, its vocabulary and a free slot make an embedding possible. */
-    val canEmbed: Boolean get() = encoder?.supported == true && tokenizer != null && !busy
+    val canEmbed: Boolean get() = embeddingReady && !busy
 
     private val generationGuard = AtomicBoolean(false)
 
@@ -164,17 +183,40 @@ class AiController(
     private var onnxPath: String? = null
 
     init {
-        refreshRuntimeStatus()
+        // Both are queued on the worker: listing the directory is IO, and probing the runtimes
+        // loads native libraries. Doing either here would freeze the first frame of the tab.
         refreshModels()
+        refreshRuntimeStatus()
     }
 
+    /**
+     * Probes both runtimes on the worker thread and publishes the result.
+     *
+     * This used to run synchronously from the constructor, which meant opening the AI tab loaded
+     * `libmossdial_ai.so`, created the ONNX environment and called into both from the main thread.
+     * The tab now composes against [llamaAvailable], [onnxAvailable] and the status strings, which
+     * arrive when the worker is done.
+     */
     fun refreshRuntimeStatus() {
-        llamaStatus = llama.unavailableReason()
+        runCatching { executor.execute { probeRuntimeStatus() } }
+    }
+
+    private fun probeRuntimeStatus() {
+        val llamaText = llama.unavailableReason()
             ?: runCatching { llama.systemInfo() }
                 .getOrElse { "llama.cpp is loaded but could not describe itself: ${it.message}" }
-        onnxStatus = onnx.unavailableReason()
+        val onnxText = onnx.unavailableReason()
             ?: runCatching { onnx.version() }
                 .getOrElse { "ONNX Runtime could not report its version: ${it.message}" }
+        val llamaReady = llama.isAvailable()
+        val onnxReady = onnx.isAvailable()
+        post {
+            llamaStatus = llamaText
+            onnxStatus = onnxText
+            llamaAvailable = llamaReady
+            onnxAvailable = onnxReady
+            runtimesChecked = true
+        }
     }
 
     fun refreshModels() = launch("Reading the model directory") { readModels() }
@@ -229,8 +271,17 @@ class AiController(
         }
         launch("Downloading the model") {
             post { downloadProgress = 0L to -1L }
+            var lastProgressAt = 0L
             val stored = try {
-                downloader.download(url) { read, total -> post { downloadProgress = read to total } }
+                downloader.download(url) { read, total ->
+                    // A download can report thousands of times a second. The bar only needs to look
+                    // alive, so progress crosses to the UI thread at most every 100ms.
+                    val now = System.nanoTime()
+                    if (now - lastProgressAt >= DOWNLOAD_PROGRESS_NANOS) {
+                        lastProgressAt = now
+                        post { downloadProgress = read to total }
+                    }
+                }
             } catch (failure: Throwable) {
                 post { downloadProgress = null }
                 throw failure
@@ -292,7 +343,7 @@ class AiController(
             message = "Load a GGUF model before chatting"
             return
         }
-        val turns = chatTurns + ChatTurn(ChatTurn.Role.User, text)
+        val turns = (chatTurns + ChatTurn(ChatTurn.Role.User, text)).takeLast(MAX_RETAINED_TURNS)
         val request = config
         chatTurns = turns
         draft = ""
@@ -304,11 +355,22 @@ class AiController(
             // here can never be in llama.cpp at the same time.
             requireGenerationSlot()
             try {
+                // A token can be produced far faster than a phone can lay out text. Publishing every
+                // token made the whole chat section recompose dozens of times a second; publishing
+                // at most every 80ms keeps the reply visibly streaming without the stutter.
+                var lastPublishedAt = 0L
                 val finalText = generate(handle, turns, request, honourCancellation = true) { snapshot ->
-                    post { reply = snapshot }
+                    val now = System.nanoTime()
+                    if (now - lastPublishedAt >= STREAM_UI_FRAME_NANOS) {
+                        lastPublishedAt = now
+                        post { reply = snapshot }
+                    }
                 }
                 post { reply = finalText }
-                post { chatTurns = chatTurns + ChatTurn(ChatTurn.Role.Assistant, finalText) }
+                post {
+                    chatTurns = (chatTurns + ChatTurn(ChatTurn.Role.Assistant, finalText))
+                        .takeLast(MAX_RETAINED_TURNS)
+                }
             } finally {
                 releaseGenerationSlot()
             }
@@ -348,8 +410,8 @@ class AiController(
         if (maxTokens < 1) {
             throw IllegalArgumentException("maxTokens must be positive")
         }
-        if (timeoutMillis < 1_000L) {
-            throw IllegalArgumentException("The generation timeout must be at least a second")
+        if (timeoutMillis < 1L) {
+            throw IllegalArgumentException("The generation timeout must be positive")
         }
         requireGenerationSlot()
         val outcome = GenerationOutcome()
@@ -397,9 +459,22 @@ class AiController(
         selectedOnnx = name
         launch("Reading ${stored.name}") {
             closeOnnxSession()
+            // Nothing about the previous model may survive into the new probe: if describe fails,
+            // the tab would otherwise keep showing the old model's inputs and its encoder support.
+            onnxModel = null
+            encoder = null
+            tokenizer = null
+            embedding = null
+            vocabularyName = null
+            vocabularyStatus = "Reading ${stored.name}"
             val path = stored.file.absolutePath
+            val info = try {
+                onnx.describe(path)
+            } catch (failure: Throwable) {
+                vocabularyStatus = "No ONNX model is open"
+                throw failure
+            }
             onnxPath = path
-            val info = onnx.describe(path)
             onnxModel = info
             encoder = OnnxEncoder.detect(info)
             loadTokenizerFor(stored.name)
@@ -500,8 +575,8 @@ class AiController(
         if (text.isBlank()) {
             throw IllegalArgumentException("The text to embed cannot be empty")
         }
-        if (timeoutMillis < 1_000L) {
-            throw IllegalArgumentException("The embedding timeout must be at least a second")
+        if (timeoutMillis < 1L) {
+            throw IllegalArgumentException("The embedding timeout must be positive")
         }
         requireGenerationSlot()
         val outcome = EmbeddingOutcome()
@@ -679,7 +754,7 @@ class AiController(
                 readVocabularyState()
             }
         }
-        return "${listed.size} model file(s)"
+        return "${listed.size} model ${if (listed.size == 1) "file" else "files"}"
     }
 
     /** Native teardown only. Callers own the matching state updates. */
@@ -746,6 +821,44 @@ class AiController(
 
         /** How much of a vector the tab shows, because all of it does not fit on a phone. */
         private const val PREVIEW_VALUES = 8
+
+        /**
+         * How many turns the transcript retains.
+         *
+         * The prompt is bounded by the model's context window anyway, so a hundred turns is already
+         * more text than can be sent; keeping the list unbounded would only hold strings the model
+         * will never see.
+         */
+        private const val MAX_RETAINED_TURNS = 100
+
+        /**
+         * How often a streaming reply reaches the UI: at most every 80ms, about twelve frames a
+         * second. A model can emit tokens faster than a phone can lay out the growing text, and the
+         * difference is invisible at this interval.
+         */
+        private const val STREAM_UI_FRAME_NANOS = 80_000_000L
+
+        /** How often a download may publish its byte count: ten updates a second is enough. */
+        private const val DOWNLOAD_PROGRESS_NANOS = 100_000_000L
+
+        /**
+         * The one controller this process uses.
+         *
+         * The tab used to build a controller when it opened and release it when it closed. That
+         * meant every visit loaded the native runtimes, re-read the model directory and, worse,
+         * unloaded the model — which also left the local AI API with nothing to answer with while
+         * the tab was not on screen. Creating it once keeps the model warm and makes reopening
+         * the tab a composition rather than an initialization.
+         */
+        @Volatile
+        private var sharedInstance: AiController? = null
+
+        fun shared(context: Context): AiController {
+            sharedInstance?.let { return it }
+            return synchronized(this) {
+                sharedInstance ?: forContext(context.applicationContext).also { sharedInstance = it }
+            }
+        }
 
         /**
          * Wires the controller against the real platform pieces. Refuses to start when

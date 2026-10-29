@@ -9,6 +9,9 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 import java.util.Comparator
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.TimeUnit
 
 /**
  * Exercises the real launch path against a stand-in executable.
@@ -89,6 +92,50 @@ class TunnelManagerTest {
     }
 
     @Test
+    fun stoppingWhileTheLaunchIsStillQueuedDropsIt() {
+        val marker = File(directory, "launched")
+        val executable = standIn("printf 'ran' > \"${marker.absolutePath}\"\nexec sleep 300")
+
+        // Occupy the single control thread so the launch stays queued while Stop is pressed.
+        val gate = CountDownLatch(1)
+        val occupied = CountDownLatch(1)
+        controlExecutor().execute {
+            occupied.countDown()
+            gate.await()
+        }
+        assertTrue(occupied.await(5, TimeUnit.SECONDS))
+        try {
+            val started = TunnelManager.start(TunnelConfig(executable.absolutePath, TOKEN))
+
+            assertEquals(TunnelPhase.Starting, started.phase)
+            TunnelManager.stop()
+            assertEquals(TunnelPhase.Stopped, TunnelManager.snapshot().phase)
+        } finally {
+            gate.countDown()
+        }
+
+        assertEquals(TunnelPhase.Stopped, awaitStatus { it.phase == TunnelPhase.Stopped }.phase)
+        Thread.sleep(300)
+        assertFalse("a cancelled launch must not start a process", marker.exists())
+        assertFalse(TunnelManager.isRunning())
+    }
+
+    @Test
+    fun reconnectsOnceAfterAnUnexpectedExit() {
+        val counter = File(directory, "starts")
+        val executable = standIn("printf 'x\\n' >> \"${counter.absolutePath}\"\nexit 1")
+
+        TunnelManager.start(TunnelConfig(executable.absolutePath, TOKEN))
+
+        assertTrue(
+            "the tunnel should be launched again after it exits on its own",
+            waitForLines(counter, 2)
+        )
+        TunnelManager.stop()
+        assertEquals(TunnelPhase.Stopped, awaitStatus { it.phase == TunnelPhase.Stopped }.phase)
+    }
+
+    @Test
     fun neverStartsASecondProcessWhileOneIsAlive() {
         val counter = File(directory, "launches")
         val executable = standIn("printf 'x\\n' >> \"${counter.absolutePath}\"\nexec sleep 300")
@@ -159,6 +206,21 @@ class TunnelManagerTest {
         while (System.currentTimeMillis() < deadline && !file.isFile) {
             Thread.sleep(25)
         }
+    }
+
+    private fun waitForLines(file: File, count: Int): Boolean {
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline) {
+            if (file.isFile && file.readLines().size >= count) return true
+            Thread.sleep(25)
+        }
+        return file.isFile && file.readLines().size >= count
+    }
+
+    private fun controlExecutor(): ExecutorService {
+        val field = TunnelManager::class.java.getDeclaredField("control")
+        field.isAccessible = true
+        return field.get(TunnelManager) as ExecutorService
     }
 
     private fun awaitStatus(

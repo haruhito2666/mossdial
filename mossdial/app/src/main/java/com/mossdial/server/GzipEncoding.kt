@@ -5,8 +5,17 @@ import java.util.Locale
 object GzipEncoding {
     const val MIN_CONTENT_LENGTH = 1_024L
 
+    /**
+     * The largest file worth compressing.
+     *
+     * Compression is done in memory once, so this is also the per-request memory bound. Larger
+     * text files are served as they are: writing a temporary compressed copy would turn a cheap
+     * download into disk IO, and the double pass this replaced was worse still.
+     */
+    const val MAX_CONTENT_LENGTH = 8L * 1024 * 1024
+
     fun isEligible(contentType: String, contentLength: Long, acceptEncoding: String?): Boolean =
-        contentLength >= MIN_CONTENT_LENGTH &&
+        contentLength in MIN_CONTENT_LENGTH..MAX_CONTENT_LENGTH &&
             isCompressible(contentType) &&
             acceptsGzip(acceptEncoding)
 

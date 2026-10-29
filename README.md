@@ -33,7 +33,7 @@ cd mossdial
   :app:assembleAndroidTest :app:lintDebug :app:lintVitalRelease
 ```
 
-As of now this passes: 348 JVM tests, all three assembles, and lint clean on both variants. No feature
+As of now this passes: 370 JVM tests, all three assembles, and lint clean on both variants. No feature
 has yet been exercised on a device or emulator — [RELEASING.md](./RELEASING.md) has the checklist
 that closes that gap.
 

@@ -10,16 +10,16 @@ import androidx.compose.ui.unit.sp
 /**
  * The type scale.
  *
- * Weights carry meaning: `Normal` for prose and values, `SemiBold`/`Bold` for headings, and
- * [LabelWeight] for the label tier — the smallest text a person reads to orient (nav labels, field
- * labels, status words, captions beside controls). Small text set at Normal weight looks faint next
- * to its value; the semi-medium weight makes it findable without competing.
+ * Two rules hold the page together. Sizes climb in a small, regular ladder — 13, 15, 18, 21 — so a
+ * section title, a row title and a caption are visibly different without any of them shouting.
+ * Weights carry the hierarchy: prose is Normal, every title is SemiBold, and the label tier is set
+ * at [LabelWeight] so a small line stays findable beside the value it describes.
  *
- * Nothing on a screen is smaller than 12sp: `labelSmall` was 11 and is now the same floor as
- * everything else, because a size below the floor stopped being legible before it stopped being useful.
+ * Nothing on a screen is smaller than 13sp. The floor used to be 12, which is legible in isolation
+ * and faint on a phone held at arm's length; 13 is the smallest size that still reads as text.
  *
  * Line heights are set explicitly rather than left to the default, and trimmed so the first and last
- * lines sit evenly inside a card. Without the trim, text that begins a block is pushed down a few
+ * lines sit evenly inside a block. Without the trim, text that begins a block is pushed down a few
  * pixels and the spacing above it looks larger than the spacing below it.
  */
 private val TrimmedLineHeight = LineHeightStyle(
@@ -28,12 +28,13 @@ private val TrimmedLineHeight = LineHeightStyle(
 )
 
 /**
- * The weight of the label tier: five parts in ten between Medium and SemiBold. Compose accepts an
- * arbitrary weight, and the platform resolves it against the nearest face the system font has, so
- * on a device whose Roboto only carries static weights this lands on Medium or SemiBold rather
- * than failing.
+ * The weight of the label tier: SemiBold.
+ *
+ * Small text at Normal weight looks faint next to its value, and at Bold it competes with the titles
+ * above it. SemiBold is the one weight the system font is guaranteed to carry as a real face, so the
+ * label tier resolves the same way on every device.
  */
-private val LabelWeight = FontWeight(560)
+private val LabelWeight = FontWeight.SemiBold
 
 private fun style(
     size: Int,
@@ -51,23 +52,24 @@ private fun style(
 
 val MossdialTypography = Typography(
     // Screen titles. Large enough to anchor a page, tight enough to leave room for content.
-    headlineLarge = style(28, 34, FontWeight.Bold, (-0.4)),
-    headlineMedium = style(24, 30, FontWeight.Bold, (-0.3)),
-    headlineSmall = style(20, 26, FontWeight.SemiBold, (-0.2)),
+    headlineLarge = style(32, 38, FontWeight.Bold, (-0.4)),
+    headlineMedium = style(27, 33, FontWeight.Bold, (-0.3)),
+    headlineSmall = style(23, 29, FontWeight.SemiBold, (-0.2)),
 
-    // Card and section headings.
-    titleLarge = style(19, 26, FontWeight.SemiBold),
-    titleMedium = style(16, 22, FontWeight.SemiBold, 0.1),
-    titleSmall = style(14, 20, FontWeight.SemiBold, 0.1),
+    // The phase word at the top of a status page, the address, and section-level headings.
+    titleLarge = style(21, 28, FontWeight.SemiBold),
+    titleMedium = style(18, 24, FontWeight.SemiBold, 0.1),
+    titleSmall = style(15, 21, FontWeight.SemiBold, 0.1),
 
-    // Prose. Normal weight, so it recedes and the headings carry the structure.
-    bodyLarge = style(16, 24),
-    bodyMedium = style(14, 21),
-    bodySmall = style(12, 17),
+    // Prose. Body sizes are Normal so paragraphs recede; the small tier is Medium because at 13sp
+    // Normal reads as faint next to the values around it.
+    bodyLarge = style(17, 25),
+    bodyMedium = style(15, 22),
+    bodySmall = style(13, 19, FontWeight.Medium),
 
     // Labels sit above controls and above values. [LabelWeight], because they are short and need
     // to be findable without competing with the value underneath them.
-    labelLarge = style(14, 20, LabelWeight, 0.1),
-    labelMedium = style(12, 16, LabelWeight, 0.5),
-    labelSmall = style(12, 16, LabelWeight, 0.4)
+    labelLarge = style(15, 20, LabelWeight, 0.1),
+    labelMedium = style(13, 18, LabelWeight, 0.4),
+    labelSmall = style(13, 18, LabelWeight, 0.3)
 )

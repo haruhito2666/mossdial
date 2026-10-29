@@ -24,15 +24,26 @@ object ServerControl {
             .putExtra(ServerService.EXTRA_PORT, settings.port)
             .putExtra(ServerService.EXTRA_ALLOW_LAN, settings.allowLan)
             .putExtra(ServerService.EXTRA_ENABLE_SSL, settings.enableSsl)
-        return submit(context, intent, "The system refused to start the server")
+        val accepted = submit(context, intent, "The system refused to start the server")
+        if (accepted) {
+            // Remembered across process death: a sticky restart has no intent to read, so this is
+            // what tells the service it should come back rather than shut down.
+            settings.desiredRunning = true
+        }
+        return accepted
     }
 
-    fun stop(context: Context): Boolean =
-        submit(
+    fun stop(context: Context): Boolean {
+        val accepted = submit(
             context,
             Intent(context, ServerService::class.java).setAction(ServerService.ACTION_STOP),
             "The system refused to stop the server"
         )
+        if (accepted) {
+            ServerSettings(context).desiredRunning = false
+        }
+        return accepted
+    }
 
     private fun submit(context: Context, intent: Intent, message: String): Boolean = try {
         ContextCompat.startForegroundService(context, intent)

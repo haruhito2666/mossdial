@@ -14,7 +14,7 @@ import java.io.File
  * materialising the value.
  */
 class TunnelSettings(context: Context, private val secretStore: SecretStore) {
-    private val preferences = context.getSharedPreferences("tunnel_settings", Context.MODE_PRIVATE)
+    private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
     constructor(context: Context) : this(context, defaultSecretStore(context))
 
@@ -60,9 +60,21 @@ class TunnelSettings(context: Context, private val secretStore: SecretStore) {
 
     companion object {
         const val TOKEN_SLOT = "tunnel_token"
+        private const val PREFERENCES = "tunnel_settings"
         private const val KEY_ENABLED = "enabled"
         private const val KEY_EXECUTABLE_PATH = "executable_path"
         private const val KEY_PROTOCOL = "protocol"
+
+        /**
+         * Whether the tunnel is enabled, without opening the Keystore-backed store.
+         *
+         * The file server asks this on request threads to decide whether a forwarded address may
+         * be trusted. That path must not be able to fail because secure storage is unavailable,
+         * so it reads the plain preference directly.
+         */
+        fun isEnabled(context: Context): Boolean =
+            context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+                .getBoolean(KEY_ENABLED, false)
 
         fun defaultSecretStore(context: Context): SecretStore = EncryptedSecretStore(
             File(context.filesDir, "secrets"),

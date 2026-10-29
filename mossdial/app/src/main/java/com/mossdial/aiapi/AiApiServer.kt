@@ -1,9 +1,14 @@
 package com.mossdial.aiapi
 
+import com.mossdial.server.DeadlineInputStream
 import com.mossdial.server.HttpLineTooLargeException
 import com.mossdial.server.HttpRequestLines
+import com.mossdial.server.LocalTlsContext
 import com.mossdial.server.RateLimitKeys
 import com.mossdial.server.RateLimiter
+import com.mossdial.server.RequestDeadline
+import com.mossdial.server.TlsIdentity
+import com.mossdial.server.WatchdogOutputStream
 import java.io.BufferedInputStream
 import java.io.Closeable
 import java.io.IOException
@@ -41,7 +46,13 @@ class AiApiServer(
     private val config: AiApiConfig,
     private val token: String,
     private val backend: AiApiBackend,
-    private val onRequest: (AiApiRequest) -> Unit = {}
+    private val onRequest: (AiApiRequest) -> Unit = {},
+    /**
+     * Where TLS gets its identity. Supplied rather than created here for the same reason as the
+     * file server: the certificate has to survive a restart, and only the app knows where the
+     * device keeps its key. A host JVM gets a throwaway identity.
+     */
+    private val tlsIdentity: () -> TlsIdentity = { TlsIdentity.inMemory() }
 ) : Closeable {
     companion object {
         private const val BUFFER_SIZE = 32 * 1024
@@ -51,6 +62,10 @@ class AiApiServer(
         private const val MODELS_PATH = "/v1/models"
         private const val COMPLETIONS_PATH = "/v1/chat/completions"
         private const val EMBEDDINGS_PATH = "/v1/embeddings"
+
+        /** Ten failed accepts in a row is a broken listener, not a transient client error. */
+        private const val MAX_ACCEPT_FAILURES = 10
+        private const val ACCEPT_RETRY_BACKOFF_MILLIS = 100L
         private val EMPTY_BODY = ByteArray(0)
         private val HTTP_VERSIONS = setOf("HTTP/1.0", "HTTP/1.1")
         private val SINGLETON_HEADERS =
@@ -89,16 +104,34 @@ class AiApiServer(
     val isRunning: Boolean
         get() = running.get()
 
+    /**
+     * True only while the accept thread is alive.
+     *
+     * [isRunning] is the flag stop() clears; it would stay true if the accept loop died of a
+     * throwable the loop does not catch. The service's watchdog uses this to tell "serving" from
+     * "the flag still says so", exactly as it does for the file server.
+     */
+    val isServing: Boolean
+        get() = running.get() && acceptThread?.isAlive == true
+
     @Synchronized
     fun start() {
         if (!running.compareAndSet(false, true)) return
         try {
             require(token.isNotEmpty()) { "The AI API needs a bearer token" }
-            val socket = ServerSocket(
-                config.port,
-                config.maxConnections,
-                InetAddress.getByName(config.bindAddress)
-            )
+            val socket = if (config.enableTls) {
+                LocalTlsContext.create(tlsIdentity()).createServerSocket(
+                    config.bindAddress,
+                    config.port,
+                    config.maxConnections
+                )
+            } else {
+                ServerSocket(
+                    config.port,
+                    config.maxConnections,
+                    InetAddress.getByName(config.bindAddress)
+                )
+            }
             val worker = ThreadPoolExecutor(
                 config.workerThreads,
                 config.workerThreads,
@@ -140,11 +173,24 @@ class AiApiServer(
     override fun close() = stop()
 
     private fun acceptLoop(server: ServerSocket, worker: ThreadPoolExecutor) {
+        var consecutiveFailures = 0
         while (running.get() && !server.isClosed) {
             val socket = try {
-                server.accept()
+                server.accept().also { consecutiveFailures = 0 }
             } catch (_: IOException) {
-                if (running.get()) continue else break
+                if (!running.get() || server.isClosed) break
+                consecutiveFailures += 1
+                if (consecutiveFailures >= MAX_ACCEPT_FAILURES) {
+                    running.set(false)
+                    break
+                }
+                try {
+                    Thread.sleep(ACCEPT_RETRY_BACKOFF_MILLIS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break
+                }
+                continue
             }
             sockets += socket
             try {
@@ -173,7 +219,14 @@ class AiApiServer(
         try {
             socket.soTimeout = config.readTimeoutMillis
             socket.tcpNoDelay = true
-            val input = BufferedInputStream(socket.getInputStream(), BUFFER_SIZE)
+            val input = BufferedInputStream(
+                DeadlineInputStream(
+                    input = socket.getInputStream(),
+                    deadline = RequestDeadline(config.readTimeoutMillis),
+                    armReadTimeout = { remaining -> socket.soTimeout = remaining }
+                ),
+                BUFFER_SIZE
+            )
             val output = socket.getOutputStream()
 
             val line = HttpRequestLines.readLine(input, config.maxRequestLineBytes) ?: return
@@ -395,8 +448,19 @@ class AiApiServer(
         val selected = backend.activeEmbeddingModel()
             ?: throw AiApiFailure.Unavailable("No ONNX encoder is selected in the AI tab")
         val vectors = ArrayList<FloatArray>(request.inputs.size)
+        // One deadline covers the whole batch. Passing the full timeout to every input would let a
+        // request of sixteen inputs occupy the worker for sixteen times the configured budget.
+        val deadlineNanos = System.nanoTime() +
+            TimeUnit.MILLISECONDS.toNanos(config.generationTimeoutMillis)
         for (text in request.inputs) {
-            vectors += backend.embed(text, config.generationTimeoutMillis)
+            val remainingNanos = deadlineNanos - System.nanoTime()
+            if (remainingNanos <= 0) {
+                throw AiApiFailure.TimedOut(
+                    "The batch did not finish within ${config.generationTimeoutMillis / 1_000L}s"
+                )
+            }
+            val remainingMillis = maxOf(1L, TimeUnit.NANOSECONDS.toMillis(remainingNanos))
+            vectors += backend.embed(text, remainingMillis)
         }
         return AiApiResponse(
             200,
@@ -427,11 +491,16 @@ class AiApiServer(
             append("X-Content-Type-Options: nosniff\r\n")
             append("Connection: close\r\n\r\n")
         }
-        // The read budget has done its job by now, so the same socket gets the write one.
-        socket.soTimeout = config.writeTimeoutMillis
-        output.write(head.toByteArray(StandardCharsets.US_ASCII))
-        output.write(body)
-        output.flush()
+        // A write has no timeout in Java, so a stalled reader is released by the watchdog closing
+        // the socket. Every completed chunk re-arms it, which is what lets a slow response finish.
+        val timed = WatchdogOutputStream(socket, output, config.writeTimeoutMillis.toLong())
+        try {
+            timed.write(head.toByteArray(StandardCharsets.US_ASCII))
+            timed.write(body)
+            timed.flush()
+        } finally {
+            timed.disarm()
+        }
         return response.status
     }
 

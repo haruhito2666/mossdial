@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- For the opt-in "Unrestricted" dialog that lets the host answer while the phone sleeps. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:allowBackup="false"
@@ -27,7 +29,8 @@
         <service
             android:name=".service.ServerService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="local_web_hosting" />
@@ -36,6 +39,8 @@
         <!--
             Exported because BOOT_COMPLETED is a protected system broadcast, and additionally
             guarded by the same permission that guards the broadcast, so no other app can send it.
+            The package-replaced action brings the server back after an update, when no sticky
+            restart crosses the install.
         -->
         <receiver
             android:name=".service.BootReceiver"
@@ -44,6 +49,7 @@
             android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 

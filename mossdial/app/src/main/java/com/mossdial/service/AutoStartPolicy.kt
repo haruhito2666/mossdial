@@ -11,7 +11,8 @@ object AutoStartPolicy {
     enum class Outcome {
         RESTORE,
         SKIP_NOT_ENABLED,
-        SKIP_ONBOARDING_INCOMPLETE
+        SKIP_ONBOARDING_INCOMPLETE,
+        SKIP_NOT_RUNNING
     }
 
     data class Decision(val outcome: Outcome, val reason: String) {
@@ -26,5 +27,25 @@ object AutoStartPolicy {
         )
         !autoStartEnabled -> Decision(Outcome.SKIP_NOT_ENABLED, "Auto-start is turned off")
         else -> Decision(Outcome.RESTORE, "Restoring the server after a restart")
+    }
+
+    /**
+     * The rule for an app update.
+     *
+     * A package replacement stops the service, and a sticky restart does not cross it, so the
+     * update is handled like a restart of its own. The consent here is the immediate one — the
+     * server was running when the update landed — rather than the reboot switch, which exists for
+     * a device that has been powered off.
+     */
+    fun evaluateAfterUpdate(desiredRunning: Boolean, onboardingComplete: Boolean): Decision = when {
+        !onboardingComplete -> Decision(
+            Outcome.SKIP_ONBOARDING_INCOMPLETE,
+            "The introduction has not been completed yet"
+        )
+        !desiredRunning -> Decision(
+            Outcome.SKIP_NOT_RUNNING,
+            "The server was not running before the update"
+        )
+        else -> Decision(Outcome.RESTORE, "Restoring the server after the update")
     }
 }

@@ -60,6 +60,22 @@ class WebRootFileStoreTest {
     }
 
     @Test
+    fun refusesAnImportLargerThanTheCapAndLeavesNoTemporaryFile() {
+        val store = WebRootFileStore(root, maxImportBytes = 1_024)
+        val oversized = ByteArrayInputStream(ByteArray(2_048))
+
+        assertThrows(java.io.IOException::class.java) {
+            store.importFile("", "big.bin", oversized)
+        }
+
+        assertFalse(File(root, "big.bin").exists())
+        assertTrue(
+            "the partial import must not survive",
+            root.listFiles().orEmpty().none { it.name.startsWith(".mossdial-import-") }
+        )
+    }
+
+    @Test
     fun createsListsRenamesImportsAndDeletesFiles() {
         val store = WebRootFileStore(root)
         val index = store.createTextFile("", "index.html", "<h1>Mossdial</h1>")

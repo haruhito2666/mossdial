@@ -19,6 +19,12 @@ class GzipEncodingTest {
     }
 
     @Test
+    fun rejectsFilesTooLargeToCompressInMemory() {
+        assertTrue(GzipEncoding.isEligible("text/plain", GzipEncoding.MAX_CONTENT_LENGTH, "gzip"))
+        assertFalse(GzipEncoding.isEligible("text/plain", GzipEncoding.MAX_CONTENT_LENGTH + 1, "gzip"))
+    }
+
+    @Test
     fun honorsZeroQualityAndExplicitGzipChoice() {
         assertFalse(GzipEncoding.isEligible("text/css", 4_096, "gzip;q=0, *;q=1"))
         assertFalse(GzipEncoding.isEligible("text/css", 4_096, "*;q=0"))

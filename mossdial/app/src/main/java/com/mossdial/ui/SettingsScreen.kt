@@ -1,267 +1,266 @@
 package com.mossdial.ui
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import androidx.compose.foundation.text.KeyboardOptions
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.mossdial.data.ServerSettings
-import com.mossdial.data.ServerSettingsRules
+import com.mossdial.BuildConfig
+import com.mossdial.aiapi.AiApiPhase
+import com.mossdial.aiapi.AiApiState
+import com.mossdial.aiapi.AiApiStatus
+import com.mossdial.data.AiApiSettings
 import com.mossdial.data.TunnelSettings
-import com.mossdial.service.ServerState
+import com.mossdial.data.WebRoot
 import com.mossdial.tunnel.TunnelManager
 import com.mossdial.tunnel.TunnelPhase
-import com.mossdial.ui.components.ChipRow
-import com.mossdial.ui.components.FieldLabel
+import com.mossdial.tunnel.TunnelStatus
+import com.mossdial.ui.components.Band
+import com.mossdial.ui.components.LabeledValue
 import com.mossdial.ui.components.NavigationRow
-import com.mossdial.ui.components.SectionCard
-import com.mossdial.ui.components.SectionColumn
-import com.mossdial.ui.components.SectionHeading
+import com.mossdial.ui.components.SectionHeader
 import com.mossdial.ui.components.StatusPill
 import com.mossdial.ui.components.StatusTone
 import com.mossdial.ui.components.SupportingText
-import com.mossdial.ui.components.SwitchRow
-import com.mossdial.ui.components.screenContentPadding
+import com.mossdial.ui.components.pageSection
+import com.mossdial.ui.components.rememberIsResumed
 import com.mossdial.ui.theme.Spacing
+import java.io.File
 
 /**
- * Configuration for the local server, plus a way into the tunnel configuration.
+ * Everything outside the two tabs that run something: the tunnel, the local AI API, the background
+ * permission the server needs to serve with the screen off, where the app keeps its files, and
+ * which build this is.
  *
- * Every value is written to [ServerSettings] as it is edited, so there is one place the server,
- * the widget and the boot receiver read from and no draft state to lose. A value that is still
- * invalid is shown with the reason and is not written, rather than being silently replaced.
+ * This tab is deliberately read-only apart from that one system dialog. A switch that configures
+ * the server belongs on the server's own settings page (opened from the Server tab, and only from
+ * there), and the tunnel and AI API controls belong with the things they run. What is left is a
+ * directory of state and facts: what is configured, what is running, and where it lives.
  */
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
-    onOpenTunnel: () -> Unit
+    onOpenTunnel: () -> Unit,
+    onOpenAi: () -> Unit
 ) {
     val context = LocalContext.current
-    val settings = remember { ServerSettings(context) }
     val tunnelSettings = remember { TunnelSettings(context) }
-    var portText by remember { mutableStateOf(settings.port.toString()) }
-    var portError by remember { mutableStateOf("") }
-    var allowLan by remember { mutableStateOf(settings.allowLan) }
-    var enableTls by remember { mutableStateOf(settings.enableSsl) }
-    var autoStart by remember { mutableStateOf(settings.autoStart) }
-    var requestLogging by remember { mutableStateOf(settings.requestLogging) }
-    var logLines by remember { mutableStateOf(settings.requestLogLines) }
-    var running by remember { mutableStateOf(ServerState.isRunning()) }
+    val aiApiSettings = remember { runCatching { AiApiSettings(context) }.getOrNull() }
     var tunnelPhase by remember { mutableStateOf(TunnelManager.snapshot().phase) }
-    var tokenStored by remember { mutableStateOf(tunnelSettings.hasToken()) }
+    var apiStatus by remember { mutableStateOf(AiApiState.snapshot()) }
+    val tunnelTokenStored = remember { tunnelSettings.hasToken() }
+    val apiTokenStored = remember { aiApiSettings?.hasToken() == true }
+    val webRootPath = remember { WebRoot.ensure(context).absolutePath }
+    val modelsPath = remember { File(context.noBackupFilesDir, "models").absolutePath }
+
+    // Re-checked on resume: the answer changes in the system dialog, which is a different app.
+    val resumed = rememberIsResumed()
+    val batteryExempt = remember(resumed) {
+        context.getSystemService(PowerManager::class.java)
+            ?.isIgnoringBatteryOptimizations(context.packageName) == true
+    }
 
     val handler = remember { Handler(Looper.getMainLooper()) }
+    // Listeners rather than a poll: both states publish only when they change, so an idle Settings
+    // page costs nothing and a change appears on the frame it happens.
     DisposableEffect(Unit) {
-        val poll = object : Runnable {
-            override fun run() {
-                running = ServerState.isRunning()
-                tunnelPhase = TunnelManager.snapshot().phase
-                handler.postDelayed(this, 500)
-            }
+        val tunnelListener: (TunnelStatus) -> Unit = { next ->
+            handler.post { tunnelPhase = next.phase }
         }
-        handler.post(poll)
-        onDispose { handler.removeCallbacksAndMessages(null) }
+        val apiListener: (AiApiStatus) -> Unit = { next ->
+            handler.post { apiStatus = next }
+        }
+        TunnelManager.addListener(tunnelListener)
+        AiApiState.addListener(apiListener)
+        onDispose {
+            TunnelManager.removeListener(tunnelListener)
+            AiApiState.removeListener(apiListener)
+            handler.removeCallbacksAndMessages(null)
+        }
     }
 
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = screenContentPadding(contentPadding),
-        verticalArrangement = Arrangement.spacedBy(Spacing.Gap)
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(
+            top = contentPadding.calculateTopPadding(),
+            bottom = contentPadding.calculateBottomPadding() + Spacing.Snug
+        )
     ) {
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.Snug)) {
-                Text(
-                    text = "Settings",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onSurface
+        pageSection {
+            SectionHeader(title = "Public tunnel")
+            StatusPill(
+                label = when (tunnelPhase) {
+                    TunnelPhase.Running -> "Connected"
+                    TunnelPhase.Starting -> "Starting"
+                    TunnelPhase.Failed -> "Not connected"
+                    TunnelPhase.Stopped -> "Idle"
+                },
+                tone = when (tunnelPhase) {
+                    TunnelPhase.Running -> StatusTone.Live
+                    TunnelPhase.Starting -> StatusTone.Starting
+                    TunnelPhase.Failed -> StatusTone.Error
+                    TunnelPhase.Stopped -> StatusTone.Idle
+                },
+                detail = tunnelSettings.protocol
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.Gap)
+            ) {
+                LabeledValue(
+                    label = "Binary",
+                    value = tunnelSettings.executablePath.ifBlank { "Not set" },
+                    monospace = true,
+                    modifier = Modifier.weight(1f)
                 )
-                SupportingText(
-                    text = if (running) {
-                        "The server is running, so changes apply the next time it starts"
-                    } else {
-                        "Changes apply the next time the server starts"
-                    }
+                LabeledValue(
+                    label = "Token",
+                    value = if (tunnelTokenStored) "Stored" else "Not set",
+                    modifier = Modifier.weight(1f)
                 )
             }
+            NavigationRow(
+                title = "Open tunnel",
+                summary = if (tunnelSettings.enabled) "Enabled" else "Disabled",
+                onClick = onOpenTunnel
+            )
         }
 
-        item {
-            SectionCard {
-                SectionHeading(
-                    title = "Server",
-                    subtitle = "Where it listens and what it records"
-                )
+        item { Band() }
 
-                OutlinedTextField(
-                    value = portText,
-                    onValueChange = { value ->
-                        val digits = value.filter(Char::isDigit).take(ServerSettingsRules.MAX_PORT_DIGITS)
-                        portText = digits
-                        val parsed = ServerSettingsRules.parsePort(digits)
-                        portError = when {
-                            digits.isEmpty() -> ""
-                            parsed == null -> "Use a port between " +
-                                "${ServerSettingsRules.MIN_PORT} and ${ServerSettingsRules.MAX_PORT}"
-                            else -> {
-                                settings.port = parsed
-                                ""
-                            }
-                        }
-                    },
-                    label = { Text("Port") },
-                    supportingText = {
-                        Text(
-                            portError.ifEmpty {
-                                "Default ${ServerSettingsRules.DEFAULT_PORT}"
-                            }
-                        )
-                    },
-                    isError = portError.isNotEmpty(),
-                    singleLine = true,
-                    // A numeric keyboard, because a port has no letters and the default keyboard
-                    // offers a letter row the field will simply reject.
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                SwitchRow(
-                    checked = allowLan,
-                    onCheckedChange = {
-                        allowLan = it
-                        settings.allowLan = it
-                    },
-                    title = "Allow LAN access",
-                    summary = if (allowLan) {
-                        "Listening on ${ServerSettingsRules.ANY_ADDRESS}, so other devices on this " +
-                            "network can reach the site"
+        pageSection {
+            SectionHeader(title = "Local AI API")
+            StatusPill(
+                label = when (apiStatus.phase) {
+                    AiApiPhase.Running -> "Running"
+                    AiApiPhase.Failed -> "Unavailable"
+                    AiApiPhase.Stopped -> "Not running"
+                },
+                tone = when (apiStatus.phase) {
+                    AiApiPhase.Running -> StatusTone.Live
+                    AiApiPhase.Failed -> StatusTone.Error
+                    AiApiPhase.Stopped -> StatusTone.Idle
+                },
+                detail = if (apiStatus.isRunning) "port ${apiStatus.port}" else null
+            )
+            if (aiApiSettings == null) {
+                SupportingText("Secure storage is unavailable on this device.")
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.Gap)
+                ) {
+                    // While the API runs, the published status is what it actually bound; otherwise
+                    // the stored configuration is what the next start will use.
+                    val apiPort = if (apiStatus.isRunning) apiStatus.port else aiApiSettings.port
+                    val apiAllowLan = if (apiStatus.isRunning) {
+                        apiStatus.allowLan
                     } else {
-                        "Listening on ${ServerSettingsRules.LOOPBACK_ADDRESS}, reachable from this " +
-                            "device only"
+                        aiApiSettings.allowLan
                     }
-                )
-
-                SwitchRow(
-                    checked = enableTls,
-                    onCheckedChange = {
-                        enableTls = it
-                        settings.enableSsl = it
-                    },
-                    title = "Use HTTPS",
-                    summary = "Serves over TLS with a generated app-private certificate. Browsers will " +
-                        "warn that it is not trusted, but it is the same certificate every time."
-                )
-
-                SwitchRow(
-                    checked = autoStart,
-                    onCheckedChange = {
-                        autoStart = it
-                        settings.autoStart = it
-                    },
-                    title = "Start after a restart",
-                    summary = "Brings the server back after a reboot. Stopping it from the app, the " +
-                        "notification or the widget turns this off."
-                )
-
-                SwitchRow(
-                    checked = requestLogging,
-                    onCheckedChange = {
-                        requestLogging = it
-                        settings.requestLogging = it
-                    },
-                    title = "Keep a request log",
-                    summary = if (requestLogging) {
-                        "Remembers the last ${ServerSettingsRules.normalizeLogLines(logLines)} requests " +
-                            "in memory, so the Server tab can show them. Nothing is written to disk."
-                    } else {
-                        "No request is remembered. Counters in the traffic card are still kept, because " +
-                            "they record no path."
-                    }
-                )
-
-                if (requestLogging) {
-                    FieldLabel("Requests kept")
-                    ChipRow {
-                        ServerSettingsRules.LOG_LINES_CHOICES.forEach { choice ->
-                            FilterChip(
-                                selected = logLines == choice,
-                                onClick = {
-                                    logLines = choice
-                                    settings.requestLogLines = choice
-                                },
-                                label = { Text(choice.toString()) },
-                                shape = MaterialTheme.shapes.small
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        item {
-            // A pointer to another screen's configuration, read-out first: the tunnel's state, a
-            // word about how its token is kept, and one row to open it. Not a card, because there
-            // is nothing here to edit.
-            SectionColumn {
-                SectionHeading(
-                    title = "Public tunnel",
-                    subtitle = "Optional, and only if you supply the binary"
-                )
-
-                // The tunnel's own state is shown here as a pill rather than as a sentence built
-                // out of four clauses, which is what this was and what made it unreadable.
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    StatusPill(
-                        label = when (tunnelPhase) {
-                            TunnelPhase.Running -> "Connected"
-                            TunnelPhase.Starting -> "Starting"
-                            TunnelPhase.Failed -> "Not connected"
-                            TunnelPhase.Stopped -> "Idle"
-                        },
-                        tone = when (tunnelPhase) {
-                            TunnelPhase.Running -> StatusTone.Live
-                            TunnelPhase.Starting -> StatusTone.Starting
-                            TunnelPhase.Failed -> StatusTone.Error
-                            TunnelPhase.Stopped -> StatusTone.Idle
-                        },
-                        detail = tunnelSettings.protocol
+                    LabeledValue(
+                        label = "Port",
+                        value = apiPort.toString(),
+                        modifier = Modifier.weight(1f)
+                    )
+                    LabeledValue(
+                        label = "Access",
+                        value = if (apiAllowLan) "LAN" else "This device",
+                        modifier = Modifier.weight(1f)
+                    )
+                    LabeledValue(
+                        label = "Token",
+                        value = if (apiTokenStored) "Stored" else "Not set",
+                        modifier = Modifier.weight(1f)
                     )
                 }
+                if (apiStatus.isRunning && apiStatus.endpoint().isNotEmpty()) {
+                    LabeledValue(
+                        label = "Endpoint",
+                        value = apiStatus.endpoint(),
+                        monospace = true
+                    )
+                }
+            }
+            NavigationRow(
+                title = "Open AI",
+                onClick = onOpenAi
+            )
+        }
 
-                SupportingText(
-                    text = buildString {
-                        append(if (tunnelSettings.enabled) "Enabled" else "Disabled")
-                        append(" · ")
-                        append(if (tokenStored) "a token is stored" else "no token stored")
-                        append(". Mossdial does not ship a tunnel binary. The token is stored encrypted " +
-                            "under an Android Keystore key and is never written to the log.")
+        item { Band() }
+
+        pageSection {
+            SectionHeader(title = "Background")
+            NavigationRow(
+                title = "Battery optimization",
+                summary = if (batteryExempt) {
+                    "Unrestricted — keeps serving with the screen off"
+                } else {
+                    "Optimized — Android may pause the server when idle"
+                },
+                onClick = {
+                    val intent = if (batteryExempt) {
+                        Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    } else {
+                        Intent(
+                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:${context.packageName}")
+                        )
                     }
-                )
+                    runCatching { context.startActivity(intent) }
+                }
+            )
+            SupportingText(
+                if (batteryExempt) {
+                    "Android will not defer the server's network while the phone is idle."
+                } else {
+                    "Allows the server to answer while the phone is in deep sleep."
+                }
+            )
+        }
 
-                NavigationRow(
-                    title = "Open tunnel configuration",
-                    summary = "Point the app at a cloudflared executable and give it a token",
-                    onClick = onOpenTunnel
+        item { Band() }
+
+        pageSection {
+            SectionHeader(title = "Storage")
+            LabeledValue(label = "Web root", value = webRootPath, monospace = true)
+            LabeledValue(label = "Models", value = modelsPath, monospace = true)
+        }
+
+        item { Band() }
+
+        pageSection {
+            SectionHeader(title = "About")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.Gap)
+            ) {
+                LabeledValue(
+                    label = "Version",
+                    value = BuildConfig.VERSION_NAME,
+                    modifier = Modifier.weight(1f)
+                )
+                LabeledValue(
+                    label = "Build",
+                    value = BuildConfig.BUILD_TYPE,
+                    modifier = Modifier.weight(1f)
                 )
             }
         }

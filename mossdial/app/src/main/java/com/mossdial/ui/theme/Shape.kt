@@ -23,6 +23,13 @@ val MossdialShapes = Shapes(
 /** Cards, sheets and dialogs: the largest radius, because they are the largest surfaces. */
 val CardLarge = RoundedCornerShape(18.dp)
 
+/**
+ * The floating navigation bar. Softer than the cards on purpose: nothing is nested inside it, it
+ * is the one element the thumb moves between constantly, and a bar with card-sharp corners reads
+ * as furniture rather than as a handle.
+ */
+val BarShape = RoundedCornerShape(24.dp)
+
 /** Buttons, text fields and anything a finger presses. */
 val Control = RoundedCornerShape(12.dp)
 

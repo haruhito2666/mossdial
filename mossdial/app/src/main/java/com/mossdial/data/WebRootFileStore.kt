@@ -5,6 +5,7 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.InputStream
+import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -12,7 +13,10 @@ import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.Locale
 
-class WebRootFileStore(root: File) {
+class WebRootFileStore(
+    root: File,
+    private val maxImportBytes: Long = MAX_IMPORT_BYTES
+) {
     private val rootDirectory: File
 
     init {
@@ -139,7 +143,7 @@ class WebRootFileStore(root: File) {
                 StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.WRITE
             ).use { output ->
-                source.copyTo(output)
+                copyBounded(source, output)
             }
             ensureTargetSafe(target)
             if (Files.exists(target.toPath(), LinkOption.NOFOLLOW_LINKS)) {
@@ -324,6 +328,29 @@ class WebRootFileStore(root: File) {
     private fun isWithinRoot(file: File): Boolean =
         file.absoluteFile.toPath().normalize().startsWith(rootDirectory.toPath().normalize())
 
+    /**
+     * Copies an import under a hard ceiling.
+     *
+     * The source is a document provider, so its length is not known ahead of time and a broken or
+     * hostile provider could stream without end. Stopping at the cap keeps the temporary file and
+     * the phone's free space bounded; the partial file is deleted by the caller.
+     */
+    private fun copyBounded(source: InputStream, output: OutputStream) {
+        val buffer = ByteArray(COPY_BUFFER_BYTES)
+        var total = 0L
+        while (true) {
+            val read = source.read(buffer)
+            if (read < 0) return
+            total += read
+            if (total > maxImportBytes) {
+                throw IOException(
+                    "The file is larger than the ${maxImportBytes / (1024 * 1024)} MB import limit"
+                )
+            }
+            output.write(buffer, 0, read)
+        }
+    }
+
     private fun validateName(name: String): String {
         if (
             name.isBlank() ||
@@ -338,6 +365,12 @@ class WebRootFileStore(root: File) {
             throw IllegalArgumentException("Invalid file name")
         }
         return name
+    }
+
+    companion object {
+        /** A single import may not exceed a gigabyte, a ceiling a phone can actually hold. */
+        const val MAX_IMPORT_BYTES = 1_024L * 1_024L * 1_024L
+        private const val COPY_BUFFER_BYTES = 64 * 1024
     }
 }
 

@@ -159,7 +159,15 @@ class AiControllerApiBackendTest {
     fun aPublishedStatusDescribesWhatIsRunning() {
         assertEquals("", AiApiStatus.STOPPED.endpoint())
         assertEquals("http://127.0.0.1:8081", AiApiStatus.running(8081, allowLan = false).endpoint())
-        assertTrue(AiApiStatus.running(8081, allowLan = true).endpoint().contains("0.0.0.0:8081"))
+        assertEquals(
+            "https://127.0.0.1:8081",
+            AiApiStatus.running(8081, allowLan = false, enableTls = true).endpoint()
+        )
+        val lan = AiApiStatus.running(8081, allowLan = true).endpoint()
+        assertTrue(lan, lan.startsWith("http://"))
+        assertTrue(lan, lan.endsWith(":8081"))
+        val secureLan = AiApiStatus.running(8081, allowLan = true, enableTls = true).endpoint()
+        assertTrue(secureLan, secureLan.startsWith("https://"))
         assertTrue(AiApiStatus.failed("port in use").detail.isNotEmpty())
         assertTrue(AiApiState.publish(AiApiStatus.running(9000, allowLan = false)).isRunning)
         assertSame(AiApiState.snapshot().phase, AiApiPhase.Running)

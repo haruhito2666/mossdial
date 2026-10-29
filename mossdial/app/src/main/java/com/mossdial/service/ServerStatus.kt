@@ -16,7 +16,14 @@ data class ServerStatus(
     val port: Int = 0,
     val allowLan: Boolean = false,
     val enableTls: Boolean = false,
-    val detail: String = ""
+    val detail: String = "",
+    /**
+     * When this run of the server came up, on the `SystemClock.elapsedRealtime()` scale, so a
+     * screen can show how long the server has been serving without keeping its own clock — a
+     * clock that would reset every time the tab left composition. Zero means the phase carries no
+     * start moment, which is every state but Running.
+     */
+    val startedAtElapsedMillis: Long = 0L
 ) {
     val isActive: Boolean
         get() = phase == ServerPhase.Starting || phase == ServerPhase.Running
@@ -74,15 +81,56 @@ object ServerState {
  * means the tab shows nothing rather than numbers from a server that is no longer up.
  */
 object TrafficState {
+    /**
+     * How many one-second samples the live graphs on the server tab draw: a rolling minute of
+     * traffic, published once per watch tick.
+     */
+    private const val SAMPLE_CAPACITY = 60
+
+    private val lock = Any()
+    private val samples = ArrayDeque<TrafficSample>(SAMPLE_CAPACITY)
+
     @Volatile
     private var snapshot: ServerStatisticsSnapshot = ServerStatisticsSnapshot.EMPTY
 
     fun snapshot(): ServerStatisticsSnapshot = snapshot
 
+    /** The rolling window of per-second deltas the live graphs plot, oldest first. */
+    fun samples(): List<TrafficSample> = synchronized(lock) { samples.toList() }
+
     fun publish(next: ServerStatisticsSnapshot): ServerStatisticsSnapshot {
+        val previous = snapshot
+        synchronized(lock) {
+            // Deltas, not totals: the graph of the last minute must show traffic as it happened,
+            // survive a counter that never decreases across a restart of the underlying server,
+            // and never read a negative dip because a sample landed between publishes.
+            samples.addLast(
+                TrafficSample(
+                    requestsDelta = (next.totalRequests - previous.totalRequests).coerceAtLeast(0),
+                    bytesDelta = (next.bytesSent - previous.bytesSent).coerceAtLeast(0)
+                )
+            )
+            while (samples.size > SAMPLE_CAPACITY) {
+                samples.removeFirst()
+            }
+        }
         snapshot = next
         return next
     }
 
-    fun clear(): ServerStatisticsSnapshot = publish(ServerStatisticsSnapshot.EMPTY)
+    fun clear(): ServerStatisticsSnapshot {
+        synchronized(lock) { samples.clear() }
+        snapshot = ServerStatisticsSnapshot.EMPTY
+        return snapshot
+    }
 }
+
+/**
+ * One second of observed traffic, as the delta between two published counters. The graphs on the
+ * server tab are drawn from a rolling list of these, so what they show is what the server actually
+ * served each second rather than a summary of it.
+ */
+data class TrafficSample(
+    val requestsDelta: Long,
+    val bytesDelta: Long
+)

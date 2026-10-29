@@ -67,21 +67,24 @@ class AiApiSettingsTest {
         assertEquals(8081, settings.port)
         assertEquals(8080, ServerSettingsRules.DEFAULT_PORT)
         assertFalse(settings.allowLan)
+        assertFalse(settings.enableTls)
         assertEquals("127.0.0.1", settings.bindAddress())
         assertFalse(settings.hasToken())
         assertNull(settings.token())
     }
 
     @Test
-    fun persistsThePortAndTheLanChoice() {
+    fun persistsThePortTheLanChoiceAndTheTlsChoice() {
         settings().apply {
             port = 9_001
             allowLan = true
+            enableTls = true
         }
 
         val reopened = settings()
         assertEquals(9_001, reopened.port)
         assertTrue(reopened.allowLan)
+        assertTrue(reopened.enableTls)
         assertEquals("0.0.0.0", reopened.bindAddress())
     }
 

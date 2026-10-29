@@ -117,6 +117,20 @@ class EncryptedSecretStoreTest {
     }
 
     @Test
+    fun keepsTheBlobWhenTheKeyProviderIsTemporarilyUnavailable() {
+        store.write(SLOT, TOKEN)
+        val unavailable = EncryptedSecretStore(directory) {
+            throw IllegalStateException("The Keystore is locked")
+        }
+
+        assertNull(unavailable.read(SLOT))
+        assertTrue(
+            "a key that could not be read must not be treated as a wrong key",
+            File(directory, SLOT).exists()
+        )
+    }
+
+    @Test
     fun reportsAbsenceWhenTheBlobIsTruncated() {
         store.write(SLOT, TOKEN)
         val file = File(directory, SLOT)

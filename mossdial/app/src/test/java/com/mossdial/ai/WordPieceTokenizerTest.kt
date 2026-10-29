@@ -150,6 +150,25 @@ class WordPieceTokenizerTest {
         assertEquals(3L, batch.inputIds.last())
     }
 
+    /**
+     * A single word can be as long as the whole input cap. Matching pieces against every possible
+     * substring of it used to be quadratic, so this test is a time bound as much as a shape check:
+     * it must finish long before the AI worker would look hung.
+     */
+    @Test(timeout = 5_000)
+    fun `a single enormous word is tokenized in bounded time`() {
+        val repeated = WordPieceVocabulary.parse(
+            listOf(UNKNOWN, CLASS, SEPARATOR, "a", "##a")
+        )
+        val batch = WordPieceTokenizer(repeated).encode("a".repeat(64 * 1024))
+
+        assertEquals(WordPieceVocabulary.MAX_SEQUENCE_LENGTH, batch.length)
+        assertEquals(1L, batch.inputIds.first())
+        assertEquals(2L, batch.inputIds.last())
+        assertEquals(3L, batch.inputIds[1])
+        assertTrue(batch.inputIds.drop(2).dropLast(1).all { it == 4L })
+    }
+
     @Test
     fun `a cased tokenizer keeps capitalisation`() {
         val cased = WordPieceTokenizer(vocabulary, lowerCase = false, stripAccents = false)

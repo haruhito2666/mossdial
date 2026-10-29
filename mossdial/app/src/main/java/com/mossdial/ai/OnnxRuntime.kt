@@ -93,10 +93,15 @@ class OnnxException(message: String, cause: Throwable? = null) : IOException(mes
  */
 class OrtOnnxRuntime : OnnxRuntime {
 
-    private val environment: OrtEnvironment? = try {
-        OrtEnvironment.getEnvironment()
-    } catch (_: Throwable) {
-        null
+    // Created on first use rather than in the constructor: creating the ONNX environment loads the
+    // native runtime, and the controller is built while the AI tab is being composed. The probe on
+    // the controller's worker touches this first, off the main thread.
+    private val environment: OrtEnvironment? by lazy {
+        try {
+            OrtEnvironment.getEnvironment()
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private val sessions = HashMap<String, OrtSession>()

@@ -15,12 +15,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
@@ -61,13 +62,18 @@ import androidx.compose.ui.unit.dp
 import com.mossdial.data.ManagedFile
 import com.mossdial.data.WebRoot
 import com.mossdial.data.WebRootFileStore
+import com.mossdial.ui.components.Band
 import com.mossdial.ui.components.ButtonContent
 import com.mossdial.ui.components.ButtonRow
 import com.mossdial.ui.components.EmptyState
 import com.mossdial.ui.components.ErrorNotice
+import com.mossdial.ui.components.MicroLabelText
 import com.mossdial.ui.components.Notice
+import com.mossdial.ui.components.PageSection
 import com.mossdial.ui.components.PrimaryButton
+import com.mossdial.ui.components.RowDivider
 import com.mossdial.ui.components.SecondaryButton
+import com.mossdial.ui.theme.Control
 import com.mossdial.ui.theme.Spacing
 import java.io.FileNotFoundException
 import java.util.concurrent.Executors
@@ -199,27 +205,23 @@ fun FileManagerScreen(
         onDispose { }
     }
 
+    // The page's rhythm matches every other page: one inset section for the controls, a full-width
+    // band, then the listing under the same gutter.
     Column(
         modifier = modifier
             .fillMaxSize()
             .padding(
-                start = Spacing.Inset,
-                end = Spacing.Inset,
-                top = contentPadding.calculateTopPadding() + Spacing.Base,
-                bottom = contentPadding.calculateBottomPadding() + Spacing.BottomBreathing
+                top = contentPadding.calculateTopPadding(),
+                bottom = contentPadding.calculateBottomPadding() + Spacing.Snug
             )
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(Spacing.Snug)) {
+        PageSection(spacing = Spacing.Base) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Files",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f)
-                )
+                MicroLabelText("Web root — served here")
+                Spacer(modifier = Modifier.weight(1f))
                 if (isBusy) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
@@ -227,80 +229,76 @@ fun FileManagerScreen(
                     )
                 }
             }
-            Text(
-                text = "Everything here is served by the web host",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+
+            // The breadcrumb replaces a back arrow and a path string side by side. Each segment is
+            // its own target, so a deep path can be climbed without a back press per level.
+            Breadcrumb(
+                path = currentPath,
+                enabled = !isBusy,
+                onNavigate = { currentPath = it }
             )
-        }
 
-        // The breadcrumb replaces a back arrow and a path string side by side. Each segment is its
-        // own target, so a deep path can be climbed without a back press per level.
-        Breadcrumb(
-            path = currentPath,
-            enabled = !isBusy,
-            onNavigate = { currentPath = it }
-        )
+            ButtonRow {
+                PrimaryButton(
+                    onClick = {
+                        createName = "untitled.txt"
+                        createContent = ""
+                        showCreateTextDialog = true
+                    },
+                    enabled = !isBusy,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    ButtonContent(Icons.AutoMirrored.Filled.NoteAdd, "Text file")
+                }
+            }
+            ButtonRow {
+                SecondaryButton(
+                    onClick = {
+                        createName = "new-folder"
+                        showCreateDirectoryDialog = true
+                    },
+                    enabled = !isBusy,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    ButtonContent(Icons.Default.CreateNewFolder, "Folder")
+                }
+                SecondaryButton(
+                    onClick = { openDocumentLauncher.launch(arrayOf("*/*")) },
+                    enabled = !isBusy,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    ButtonContent(Icons.Default.UploadFile, "Import")
+                }
+            }
 
-        ButtonRow(modifier = Modifier.padding(top = Spacing.Tight)) {
-            PrimaryButton(
-                onClick = {
-                    createName = "untitled.txt"
-                    createContent = ""
-                    showCreateTextDialog = true
-                },
-                enabled = !isBusy
-            ) {
-                ButtonContent(Icons.AutoMirrored.Filled.NoteAdd, "Text file")
-            }
-            SecondaryButton(
-                onClick = {
-                    createName = "new-folder"
-                    showCreateDirectoryDialog = true
-                },
-                enabled = !isBusy
-            ) {
-                ButtonContent(Icons.Default.CreateNewFolder, "Folder")
-            }
-            SecondaryButton(
-                onClick = { openDocumentLauncher.launch(arrayOf("*/*")) },
-                enabled = !isBusy
-            ) {
-                ButtonContent(Icons.Default.UploadFile, "Import")
-            }
-        }
-
-        val feedback = errorMessage ?: statusMessage
-        if (feedback != null) {
-            Box(modifier = Modifier.padding(top = Spacing.Base)) {
+            val feedback = errorMessage ?: statusMessage
+            if (feedback != null) {
                 if (errorMessage != null) {
                     ErrorNotice(message = feedback)
                 } else {
                     Notice(message = feedback)
                 }
             }
+
+            if (isLoading) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
         }
 
-        if (isLoading) {
-            LinearProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = Spacing.Base)
-            )
-        }
+        Band()
 
         if (!isLoading && entries.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = Spacing.Inset)
                     .weight(1f),
                 contentAlignment = Alignment.Center
             ) {
                 EmptyState(
                     title = if (currentPath.isEmpty()) "No files yet" else "This folder is empty",
                     body = if (currentPath.isEmpty()) {
-                        "Create a text file, make a folder, or import something from this device. " +
-                            "Whatever is here is what the site serves."
+                        "Create a file, make a folder, or import one from this device."
                     } else {
                         "There is nothing in this folder."
                     },
@@ -311,12 +309,16 @@ fun FileManagerScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = Spacing.Base)
                     .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(Spacing.Snug),
-                contentPadding = PaddingValues(bottom = Spacing.Snug)
+                contentPadding = PaddingValues(
+                    start = Spacing.Inset,
+                    end = Spacing.Inset,
+                    top = Spacing.Snug,
+                    bottom = Spacing.Snug
+                )
             ) {
-                items(entries, key = { it.relativePath }) { entry ->
+                itemsIndexed(entries, key = { _, entry -> entry.relativePath }) { index, entry ->
+                    if (index > 0) RowDivider()
                     ManagedFileRow(
                         entry = entry,
                         enabled = !isBusy,
@@ -492,23 +494,22 @@ private fun Breadcrumb(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = Spacing.Base)
             .background(
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = MaterialTheme.shapes.small
+                shape = Control
             )
-            .padding(horizontal = Spacing.Tight, vertical = Spacing.Tight),
+            .padding(horizontal = Spacing.Snug, vertical = Spacing.Snug),
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(
             onClick = { onNavigate(parentPath(path)) },
             enabled = enabled && path.isNotEmpty(),
-            modifier = Modifier.size(36.dp)
+            modifier = Modifier.size(40.dp)
         ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                 contentDescription = "Go to the parent folder",
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(22.dp)
             )
         }
         Row(
@@ -541,7 +542,7 @@ private fun Breadcrumb(
                     maxLines = 1,
                     modifier = Modifier
                         .clickable(enabled = enabled && target != path) { onNavigate(target) }
-                        .padding(horizontal = Spacing.Tight, vertical = Spacing.Tight)
+                        .padding(horizontal = Spacing.Snug, vertical = Spacing.Tight)
                 )
             }
         }
@@ -563,16 +564,7 @@ private fun ManagedFileRow(
             // The whole row opens a folder, but only a folder: tapping a file does nothing, so the
             // row is not clickable for one and does not offer the ripple that would imply otherwise.
             .clickable(enabled = enabled && isDirectory, onClick = onOpen)
-            .background(
-                color = MaterialTheme.colorScheme.surface,
-                shape = MaterialTheme.shapes.medium
-            )
-            .padding(
-                start = Spacing.Base,
-                end = Spacing.Snug,
-                top = Spacing.Base,
-                bottom = Spacing.Base
-            ),
+            .padding(vertical = Spacing.Base),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -587,12 +579,12 @@ private fun ManagedFileRow(
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
             },
-            modifier = Modifier.size(22.dp)
+            modifier = Modifier.size(24.dp)
         )
         Column(
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = Spacing.Base)
+                .padding(horizontal = Spacing.Gap)
         ) {
             Text(
                 text = entry.name,
@@ -619,7 +611,7 @@ private fun ManagedFileRow(
             Icon(
                 imageVector = Icons.Default.DriveFileRenameOutline,
                 contentDescription = "Rename ${entry.name}",
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(22.dp)
             )
         }
         IconButton(
@@ -632,7 +624,7 @@ private fun ManagedFileRow(
             Icon(
                 imageVector = Icons.Default.Delete,
                 contentDescription = "Delete ${entry.name}",
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(22.dp)
             )
         }
     }

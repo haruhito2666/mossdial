@@ -35,6 +35,9 @@ constexpr int32_t kMaxBatch = 4096;
 constexpr int32_t kMaxThreads = 64;
 constexpr int32_t kMaxTokensPerCall = 4096;
 constexpr size_t kMaxUtf16 = 1 << 20;
+// A prompt is user supplied and may be far larger than any context window. Reading at most this
+// many UTF-16 units keeps the conversion and the tokenizer bounded; anything past it is dropped.
+constexpr size_t kMaxInputUtf16 = 1 << 20;
 
 // The ggml logger is global. Every log line is mirrored into a thread local
 // buffer so a failed call can report the reason that llama.cpp logged instead of
@@ -131,16 +134,65 @@ jstring to_jstring(JNIEnv * env, const std::string & utf8) {
     return env->NewString(utf16.data(), static_cast<jsize>(utf16.size()));
 }
 
+void append_utf8(std::string & output, uint32_t code_point) {
+    if (code_point <= 0x7F) {
+        output.push_back(static_cast<char>(code_point));
+    } else if (code_point <= 0x7FF) {
+        output.push_back(static_cast<char>(0xC0 | (code_point >> 6)));
+        output.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
+    } else if (code_point <= 0xFFFF) {
+        output.push_back(static_cast<char>(0xE0 | (code_point >> 12)));
+        output.push_back(static_cast<char>(0x80 | ((code_point >> 6) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
+    } else {
+        output.push_back(static_cast<char>(0xF0 | (code_point >> 18)));
+        output.push_back(static_cast<char>(0x80 | ((code_point >> 12) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | ((code_point >> 6) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
+    }
+}
+
+// Java strings are UTF-16, not modified UTF-8. GetStringUTFChars would encode a NUL as two bytes
+// and a supplementary character as two three-byte sequences, so the tokenizer would see text the
+// user never typed. Decode the UTF-16 units ourselves and emit standard UTF-8, replacing a lone
+// surrogate with U+FFFD.
 std::string from_jstring(JNIEnv * env, jstring value) {
     if (value == nullptr) {
         return std::string();
     }
-    const char * chars = env->GetStringUTFChars(value, nullptr);
+    const jsize length = env->GetStringLength(value);
+    if (length <= 0) {
+        return std::string();
+    }
+    const jchar * chars = env->GetStringChars(value, nullptr);
     if (chars == nullptr) {
         return std::string();
     }
-    std::string result(chars);
-    env->ReleaseStringUTFChars(value, chars);
+    jsize limit = static_cast<jsize>(std::min<size_t>(static_cast<size_t>(length), kMaxInputUtf16));
+    // Do not split a surrogate pair at the truncation point.
+    if (limit < length && limit > 0) {
+        const uint32_t last = chars[limit - 1];
+        const uint32_t next = chars[limit];
+        if (last >= 0xD800 && last <= 0xDBFF && next >= 0xDC00 && next <= 0xDFFF) {
+            limit += 1;
+        }
+    }
+    std::string result;
+    result.reserve(static_cast<size_t>(limit));
+    for (jsize i = 0; i < limit;) {
+        uint32_t code_point = chars[i++];
+        if (code_point >= 0xD800 && code_point <= 0xDBFF) {
+            if (i < limit && chars[i] >= 0xDC00 && chars[i] <= 0xDFFF) {
+                code_point = 0x10000 + ((code_point - 0xD800) << 10) + (chars[i++] - 0xDC00);
+            } else {
+                code_point = 0xFFFD;
+            }
+        } else if (code_point >= 0xDC00 && code_point <= 0xDFFF) {
+            code_point = 0xFFFD;
+        }
+        append_utf8(result, code_point);
+    }
+    env->ReleaseStringChars(value, chars);
     return result;
 }
 
@@ -407,14 +459,37 @@ Java_com_mossdial_ai_LlamaBridge_nativeGenerate(
     }
 
     std::vector<llama_token> tokens(static_cast<size_t>(prompt_room));
-    const int32_t token_count = llama_tokenize(
+    int32_t token_count = llama_tokenize(
             vocab, text.c_str(), static_cast<int32_t>(text.size()), tokens.data(), prompt_room,
             true, /* add_special = */ true);
     if (token_count < 0) {
-        throw_runtime(env,
-                "Could not tokenize a prompt of " + std::to_string(text.size()) + " characters into " +
-                    std::to_string(prompt_room) + " tokens");
-        return nullptr;
+        // The prompt is longer than the room left for it. Tokenize it in full and keep the first
+        // token (BOS, when the model has one) plus the most recent tokens, rather than refusing a
+        // conversation because its earliest turn no longer fits.
+        if (token_count == INT32_MIN) {
+            throw_runtime(env, "The prompt is too large to tokenize");
+            return nullptr;
+        }
+        const int32_t required = -token_count;
+        std::vector<llama_token> full(static_cast<size_t>(required));
+        const int32_t total = llama_tokenize(
+                vocab, text.c_str(), static_cast<int32_t>(text.size()), full.data(), required,
+                true, /* add_special = */ true);
+        if (total < 0) {
+            throw_runtime(env,
+                    "Could not tokenize a prompt of " + std::to_string(text.size()) + " characters");
+            return nullptr;
+        }
+        if (total > prompt_room) {
+            const int32_t keep = prompt_room - 1;
+            tokens[0] = full[0];
+            std::copy(full.end() - keep, full.end(), tokens.begin() + 1);
+            token_count = prompt_room;
+            LOGI("Prompt truncated from %d to %d tokens", total, prompt_room);
+        } else {
+            tokens = std::move(full);
+            token_count = total;
+        }
     }
     if (token_count == 0) {
         return to_jstring(env, std::string());

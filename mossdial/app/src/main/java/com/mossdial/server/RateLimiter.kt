@@ -80,4 +80,34 @@ internal object RateLimitKeys {
             }
         }
     }
+
+    /**
+     * Fingerprints a literal IPv4 or IPv6 address, or returns null when [value] is not one.
+     *
+     * Tunnel headers are attacker controlled, so this accepts only numeric literals: a hostname
+     * would turn every request into a DNS lookup, and a malformed value must not be able to move
+     * the caller into a bucket of its choosing.
+     */
+    fun fingerprintLiteral(value: String): String? {
+        val literal = value.trim()
+        if (literal.isEmpty() || literal.length > 64) return null
+        if (literal.contains(':')) {
+            val valid = literal.all { character ->
+                character.isDigit() || character in 'a'..'f' || character in 'A'..'F' ||
+                    character == ':' || character == '.'
+            }
+            if (!valid) return null
+            return runCatching { InetAddress.getByName(literal) }.getOrNull()?.let(::fingerprint)
+        }
+        val parts = literal.split('.')
+        if (parts.size != 4) return null
+        val bytes = ByteArray(4)
+        for ((index, part) in parts.withIndex()) {
+            if (part.isEmpty() || part.length > 3 || !part.all(Char::isDigit)) return null
+            val octet = part.toIntOrNull() ?: return null
+            if (octet !in 0..255) return null
+            bytes[index] = octet.toByte()
+        }
+        return fingerprint(InetAddress.getByAddress(bytes))
+    }
 }

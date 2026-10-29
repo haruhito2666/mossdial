@@ -41,6 +41,14 @@
     native <methods>;
 }
 
+# The native token callback is reached only through JNI: the bridge asks for "onToken" on the
+# object it is handed. R8 cannot see that lookup, so without this rule it removes the method from
+# a minified build and every generation fails with "Token sink does not declare onToken(String)".
+# The class itself is kept because it is passed to native code.
+-keep class com.mossdial.ai.JniLlamaRuntime$TokenSink {
+    public void onToken(java.lang.String);
+}
+
 # The native libraries themselves are loaded by name from the APK, which shrinking cannot affect but
 # which is worth stating next to the rules above.
 -keep class com.mossdial.BuildConfig { *; }

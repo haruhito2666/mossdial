@@ -74,7 +74,8 @@ class AiControllerApiBackend(
 
     override fun activeModel(): String? = controller()?.loadedModel
 
-    override fun activeEmbeddingModel(): String? = controller()?.takeIf { it.canEmbed }?.selectedOnnx
+    override fun activeEmbeddingModel(): String? =
+        controller()?.takeIf { it.embeddingReady }?.selectedOnnx
 
     override fun models(): List<AiApiModel> {
         val active = controller() ?: return emptyList()

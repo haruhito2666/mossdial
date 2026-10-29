@@ -21,7 +21,12 @@ everything it runs stays on the device unless you turn on a tunnel yourself.
 - Path traversal and symlink protection on every file, and no directory listing.
 - Loopback-only (`127.0.0.1`) by default. LAN binding is an explicit setting, never a default.
 - Foreground service with a notification, optional start after reboot, and a home-screen widget that
-  shows the state and starts or stops the server.
+  shows the state and starts or stops the server. The service returns `START_STICKY`, so a process
+  crash brings the server back without the app being opened; a start that fails is retried with a
+  bounded backoff, and a watchdog reopens the listener if its accept loop dies. An app update
+  restores a server that was running. The Settings tab can ask Android to stop battery-optimising
+  the app, which is what lets it answer while the phone is idle; that dialog is opt-in and never
+  raised on its own.
 - A file manager for the served directory: import from device storage, browse, create a file or
   folder, rename, delete, with the same path checks the server uses.
 - Optional HTTPS. The key is created once inside the platform keystore and cannot be read out of the
@@ -40,6 +45,8 @@ everything it runs stays on the device unless you turn on a tunnel yourself.
 - The tunnel token is held in a from-scratch Android Keystore AES-GCM store rather than
   `EncryptedSharedPreferences`, in its own slot under its own key alias, so it cannot be lifted out
   with the AI API token's key or vice versa.
+- If `cloudflared` exits without a Stop, the app retries it twice, three seconds apart, and then
+  reports the last exit. Stop cancels a retry that is waiting.
 
 ### On-device models
 
@@ -82,6 +89,9 @@ inference can never hold up the site.
   instead of invented.
 - The API answers with the models the AI tab has loaded, through one shared controller, so there is
   never a second copy of the weights in memory and the model on screen is the model answering.
+- Optional HTTPS, using the same persisted self-signed identity as the site. It is off by default
+  because a client has to trust that certificate either way; with LAN access on and HTTPS off, the
+  screen says that the bearer token crosses the network in clear text.
 
 ### Everything else
 
@@ -100,7 +110,7 @@ Everything above is implemented and wired. What that means today, precisely:
 
 | Checked | Result |
 | --- | --- |
-| JVM unit tests | 348 passing across 33 classes |
+| JVM unit tests | 352 passing across 33 classes |
 | `assembleDebug`, `assembleRelease`, `assembleAndroidTest` | pass |
 | `lintDebug`, `lintVitalRelease` | no errors |
 | Dependency verification | enforced; a tampered checksum fails the build |
@@ -185,8 +195,9 @@ device.
   the web root, and the model store refuses symlinked directories, traversal, and anything that is
   not a plain `.gguf`, `.onnx` or vocabulary `.txt` file.
 - The AI API binds `127.0.0.1:8081` unless LAN access is turned on, and every route needs the bearer
-  token. The port is plain HTTP, so a caller with the token can make the device generate text and
-  embed text; do not enable LAN mode for it on an untrusted network. A Cloudflare tunnel is configured
+  token. HTTPS is available as an option and uses the same self-signed identity as the site; without
+  it, a caller with the token can read that token from the network and make the device generate and
+  embed text, so LAN access without HTTPS warns on the AI screen. A Cloudflare tunnel is configured
   on Cloudflare's side, so excluding the API port from it is the user's job, and the app says so
   rather than implying it did it.
 - An encoder is only given text it can hold: 64 KiB of input, sequences truncated to the graph's own

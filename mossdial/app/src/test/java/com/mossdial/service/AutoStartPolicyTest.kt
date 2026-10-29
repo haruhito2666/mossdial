@@ -46,4 +46,47 @@ class AutoStartPolicyTest {
             decisions.map { it.reason }.distinct().size
         )
     }
+
+    @Test
+    fun afterAnUpdateOnlyARunningServerComesBack() {
+        val stopped = AutoStartPolicy.evaluateAfterUpdate(
+            desiredRunning = false,
+            onboardingComplete = true
+        )
+        assertEquals(AutoStartPolicy.Outcome.SKIP_NOT_RUNNING, stopped.outcome)
+        assertFalse(stopped.shouldStart)
+
+        val running = AutoStartPolicy.evaluateAfterUpdate(
+            desiredRunning = true,
+            onboardingComplete = true
+        )
+        assertEquals(AutoStartPolicy.Outcome.RESTORE, running.outcome)
+        assertTrue(running.shouldStart)
+    }
+
+    @Test
+    fun anUpdateNeverStartsBeforeOnboarding() {
+        val decision = AutoStartPolicy.evaluateAfterUpdate(
+            desiredRunning = true,
+            onboardingComplete = false
+        )
+
+        assertEquals(AutoStartPolicy.Outcome.SKIP_ONBOARDING_INCOMPLETE, decision.outcome)
+        assertFalse(decision.shouldStart)
+    }
+
+    @Test
+    fun afterAnUpdateAutoStartIsNotTheConsentThatMatters() {
+        // A server can be running with the reboot switch off; the update must still restore it,
+        // because the two settings answer different questions. This asserts the policy signature
+        // takes the immediate intent rather than borrowing the boot rule.
+        assertTrue(
+            AutoStartPolicy.evaluateAfterUpdate(desiredRunning = true, onboardingComplete = true)
+                .shouldStart
+        )
+        assertFalse(
+            AutoStartPolicy.evaluate(autoStartEnabled = false, onboardingComplete = true)
+                .shouldStart
+        )
+    }
 }

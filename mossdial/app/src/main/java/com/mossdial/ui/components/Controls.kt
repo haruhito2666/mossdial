@@ -16,6 +16,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -63,10 +65,13 @@ fun SwitchRow(
                 role = Role.Switch,
                 onValueChange = onCheckedChange
             )
-            .padding(vertical = Spacing.Snug),
+            .defaultMinSize(minHeight = Spacing.TouchTarget),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(Spacing.Tight)
+        ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleSmall,
@@ -105,7 +110,7 @@ fun SwitchRow(
 @Composable
 fun NavigationRow(
     title: String,
-    summary: String,
+    summary: String? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true
@@ -114,10 +119,13 @@ fun NavigationRow(
         modifier = modifier
             .fillMaxWidth()
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = Spacing.Base),
+            .defaultMinSize(minHeight = Spacing.TouchTarget),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(Spacing.Tight)
+        ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleSmall,
@@ -127,11 +135,13 @@ fun NavigationRow(
                     MaterialTheme.colorScheme.onSurface.copy(alpha = DISABLED_ALPHA)
                 }
             )
-            Text(
-                text = summary,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (summary != null) {
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         Icon(
             imageVector = Icons.AutoMirrored.Filled.ArrowForward,
@@ -139,7 +149,7 @@ fun NavigationRow(
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .padding(start = Spacing.Base)
-                .size(18.dp)
+                .size(20.dp)
         )
     }
 }
@@ -184,8 +194,8 @@ fun ButtonRow(
 ) {
     FlowRow(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.Snug),
-        verticalArrangement = Arrangement.spacedBy(Spacing.Snug)
+        horizontalArrangement = Arrangement.spacedBy(Spacing.Base),
+        verticalArrangement = Arrangement.spacedBy(Spacing.Base)
     ) {
         content()
     }
@@ -202,12 +212,12 @@ fun ButtonRow(
 fun ButtonContent(icon: ImageVector, text: String) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.Tiniest)
+        horizontalArrangement = Arrangement.spacedBy(Spacing.Snug)
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            modifier = Modifier.size(18.dp)
+            modifier = Modifier.size(20.dp)
         )
         Text(
             text = text,
@@ -226,7 +236,39 @@ fun ButtonContent(icon: ImageVector, text: String) {
  * text, which is the palette's own pair. Any button that is not one of these two is a mistake.
  */
 private val ButtonShape = Control
-private val ButtonHeight = 44.dp
+private val ButtonHeight = 48.dp
+
+/**
+ * One choice in a row of mutually exclusive options.
+ *
+ * The four chip rows in the app previously used Material's default chip at its default height,
+ * which sat noticeably smaller than the buttons beside them and changed height with the label. One
+ * definition here keeps every row at the same 40dp and the same label style.
+ */
+@Composable
+fun ChoiceChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        enabled = enabled,
+        label = { Text(label, style = MaterialTheme.typography.labelLarge) },
+        shape = MaterialTheme.shapes.small,
+        // The selected chip uses the palette's own pale green rather than Material's grey secondary
+        // container, so a choice is visible at a glance and belongs to the same family as the
+        // running pill and the filled button.
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+        ),
+        modifier = modifier.defaultMinSize(minHeight = 40.dp)
+    )
+}
 
 @Composable
 fun PrimaryButton(

@@ -7,112 +7,142 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import com.mossdial.ui.theme.ControlSmall
 import com.mossdial.ui.theme.LocalStatusColors
 import com.mossdial.ui.theme.Spacing
+import java.util.Locale
 
 /**
  * The pieces every screen is built from.
  *
- * These exist because the same six things were being written out slightly differently on each
- * screen: a card, a heading, a label-over-value pair, a switch with a title and a summary, a notice,
- * and an empty state. Each copy was a chance for the padding to drift by two dp, which is exactly
- * the kind of misalignment that makes an interface look accidental. One definition means a change
- * here reaches every screen at once.
+ * These exist because the same handful of things were being written out slightly differently on
+ * each screen: a section heading, a label-over-value pair, a notice, an empty state. Each copy was
+ * a chance for the padding to drift by two dp, which is exactly the kind of misalignment that makes
+ * an interface look accidental. One definition means a change here reaches every screen at once.
+ *
+ * The page rhythm they serve is one column of inset sections separated by full-bleed tonal bands:
+ * [Band] is the separator, [pageSection] is the section with its gutter and its vertical padding,
+ * [SectionHeader] names it, and [PulseDot] is the living mark the status screens lead with.
  */
-
-/** The card shape, corner radius and inset, in one place. */
-val CardShape = RoundedCornerShape(18.dp)
 
 /**
- * A titled section. The base of every screen.
+ * The separator between sections: a band of quiet grey, edge to edge.
  *
- * [content] receives a `ColumnScope`, so a card's rows are spaced by [Spacing.Base] unless a row
- * genuinely needs to be tighter, which is what keeps rows inside a card evenly separated.
+ * Where a hairline says "these two lines are unrelated", a band says "this section is over"; it is
+ * shading doing the work that boxes and rules were doing, which is why the pages need neither. It
+ * carries no margin of its own: the sections on either side are already padded by [Spacing.Section],
+ * so every band on every page sits in the same amount of air.
  */
 @Composable
-fun SectionCard(
-    modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(Spacing.CardInset),
-    containerColor: Color = MaterialTheme.colorScheme.surface,
-    bordered: Boolean = true,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = CardShape,
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        // A white card on a near-white background is invisible without an edge. This is a
-        // one-pixel tonal separation rather than a border, so it does not add visual weight.
-        border = if (bordered) {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-        } else {
-            null
-        }
-    ) {
-        Column(
-            modifier = Modifier.padding(contentPadding),
-            verticalArrangement = Arrangement.spacedBy(Spacing.Base),
-            content = content
-        )
-    }
+fun Band(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(Spacing.Band)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    )
 }
 
 /**
- * A card heading, optionally with a subtitle and a trailing control.
+ * A page section: the screen gutter horizontally, [Spacing.Section] vertically, and [Spacing.Gap]
+ * between its rows.
  *
- * The title sits on the card's content edge, so the heading and the rows under it share one left
- * line. Headings carried a reserved icon slot before, and the slot was removed: several sections
- * repeated the same glyph, which said nothing, and the reserved width pushed every title 28dp out
- * of line with the content it described — the single most visible misalignment on every screen.
+ * This is the only place the page gutter is applied. A section is therefore the unit of layout, and
+ * two sections can never disagree about where their content starts, how much air follows them, or
+ * how far apart their rows sit. Screens pass a column of controls; they do not pass padding.
  */
 @Composable
-fun SectionHeading(
+fun PageSection(
+    modifier: Modifier = Modifier,
+    spacing: Dp = Spacing.Gap,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.Inset, vertical = Spacing.Section),
+        verticalArrangement = Arrangement.spacedBy(spacing),
+        content = content
+    )
+}
+
+/** A [PageSection] as an item of a lazy page. */
+fun LazyListScope.pageSection(
+    spacing: Dp = Spacing.Gap,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    item { PageSection(spacing = spacing, content = content) }
+}
+
+/**
+ * The page's smallest heading: one quiet line, capitals set wide, that names the group under it.
+ * The capitals are not emphasis — at this size, spaced capitals are simply easier to scan.
+ */
+@Composable
+fun MicroLabelText(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text.uppercase(Locale.ROOT),
+        style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.sp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier
+    )
+}
+
+/**
+ * A section header: the micro-label and its one-line explanation, with room for a single trailing
+ * control aligned to the label rather than floated against the middle of the paragraph.
+ */
+@Composable
+fun SectionHeader(
     title: String,
     subtitle: String? = null,
     trailing: @Composable (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.Top
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(Spacing.Tight)
+        ) {
+            MicroLabelText(title)
             if (subtitle != null) {
                 Text(
                     text = subtitle,
@@ -122,7 +152,7 @@ fun SectionHeading(
             }
         }
         if (trailing != null) {
-            Box(modifier = Modifier.padding(start = Spacing.Snug)) {
+            Box(modifier = Modifier.padding(start = Spacing.Base)) {
                 trailing()
             }
         }
@@ -130,23 +160,32 @@ fun SectionHeading(
 }
 
 /**
- * A section without card chrome: the heading and its contents sit directly on the screen
- * background.
- *
- * Cards bound the things a person acts on. Informational groups — a paragraph of explanation, a
- * read-out of state that holds no control — were also cards, which made every screen read as one
- * pile of boxes of equal weight. This keeps the heading, the rhythm and the gap of [SectionCard],
- * so a bare section placed next to a card holds the same line, without the box.
+ * The state of whatever the screen is about, as a twelve-point dot. Pulsing is life — running,
+ * starting, connecting — and the states that will not change on their own hold still.
  */
 @Composable
-fun SectionColumn(
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit
+fun PulseDot(
+    color: Color,
+    pulsing: Boolean,
+    modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(Spacing.Base),
-        content = content
+    val transition = rememberInfiniteTransition(label = "pulse")
+    val alpha by transition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 750, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseAlpha"
+    )
+    Box(
+        modifier = modifier
+            .size(12.dp)
+            .background(
+                color = color.copy(alpha = if (pulsing) alpha else 1f),
+                shape = CircleShape
+            )
     )
 }
 
@@ -167,7 +206,7 @@ fun LabeledValue(
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(Spacing.Tight)
+        verticalArrangement = Arrangement.spacedBy(Spacing.Snug)
     ) {
         Text(
             text = label,
@@ -182,9 +221,6 @@ fun LabeledValue(
         )
     }
 }
-
-/** Horizontal spacing between a label and the value beside it. */
-val LabelGap: Dp = Spacing.Base
 
 /**
  * A label above a row of controls, so a group of chips reads as one labelled group.
@@ -202,14 +238,6 @@ fun FieldLabel(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/**
- * A small status pill: a coloured dot and a word.
- *
- * The dot carries the state and the word confirms it, so the state does not depend on colour alone
- * and the screen stays readable for someone who cannot distinguish them. Every phase in the app
- * renders through here, which is what makes an "Online" pill look the same on the server and a
- * "Connected" pill look the same in the tunnel.
- */
 /**
  * A small status pill: a coloured dot and a word.
  *
@@ -244,13 +272,13 @@ fun StatusPill(
         }
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = Spacing.Base, vertical = Spacing.Tight + 1.dp),
+            modifier = Modifier.padding(horizontal = Spacing.Gap, vertical = Spacing.Snug),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Spacing.Snug)
         ) {
             Box(
                 modifier = Modifier
-                    .size(7.dp)
+                    .size(8.dp)
                     .background(style.dot, CircleShape)
             )
             Text(
@@ -291,7 +319,7 @@ fun Notice(
         color = MaterialTheme.colorScheme.primaryContainer
     ) {
         Row(
-            modifier = Modifier.padding(Spacing.Base),
+            modifier = Modifier.padding(Spacing.Gap),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Spacing.Base)
         ) {
@@ -299,7 +327,7 @@ fun Notice(
                 imageVector = Icons.Default.Info,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(20.dp)
             )
             Text(
                 text = message,
@@ -327,7 +355,7 @@ fun ErrorNotice(message: String, modifier: Modifier = Modifier) {
         color = MaterialTheme.colorScheme.onSurface
     ) {
         Row(
-            modifier = Modifier.padding(Spacing.Base),
+            modifier = Modifier.padding(Spacing.Gap),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Spacing.Base)
         ) {
@@ -335,7 +363,7 @@ fun ErrorNotice(message: String, modifier: Modifier = Modifier) {
                 imageVector = Icons.Default.ErrorOutline,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(20.dp)
             )
             Text(
                 text = message,
@@ -366,27 +394,27 @@ fun EmptyState(
             .fillMaxWidth()
             .padding(vertical = Spacing.Spacious),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Spacing.Base)
+        verticalArrangement = Arrangement.spacedBy(Spacing.Gap)
     ) {
         if (icon != null) {
             Surface(
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.size(56.dp)
+                modifier = Modifier.size(64.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(26.dp)
+                        modifier = Modifier.size(30.dp)
                     )
                 }
             }
         }
         Text(
             text = title,
-            style = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center
         )
@@ -400,7 +428,7 @@ fun EmptyState(
             )
         }
         if (action != null) {
-            Box(modifier = Modifier.padding(top = Spacing.Tight)) { action() }
+            Box(modifier = Modifier.padding(top = Spacing.Snug)) { action() }
         }
     }
 }
@@ -421,39 +449,8 @@ fun ChipRow(
         modifier = modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.Snug)
+        horizontalArrangement = Arrangement.spacedBy(Spacing.Base)
     ) {
         content()
     }
-}
-
-/**
- * Turns the Scaffold's window insets into a screen's own content padding.
- *
- * Every screen calls this with the padding the `Scaffold` hands it, so all five clear the status
- * bar and the navigation bar by exactly the same amount and their titles start on the same line.
- * When a screen is shown without a Scaffold, such as in a preview, it gets the default and the
- * result is still the same spacing.
- *
- * The horizontal insets are ignored on purpose: a screen already pads itself by [Spacing.Inset]
- * from its own edge, and adding the display cutout to that would double the margin on a phone that
- * has one.
- */
-@Composable
-fun screenContentPadding(
-    inner: PaddingValues = PaddingValues(0.dp),
-    applyHorizontalInsets: Boolean = false
-): PaddingValues {
-    val layoutDirection = LocalLayoutDirection.current
-    // These already come back as Dp; there is nothing to convert.
-    val left = inner.calculateLeftPadding(layoutDirection)
-    val right = inner.calculateRightPadding(layoutDirection)
-    val top = inner.calculateTopPadding()
-    val bottom = inner.calculateBottomPadding()
-    return PaddingValues(
-        start = if (applyHorizontalInsets) left else Spacing.Inset,
-        top = top + Spacing.Base,
-        end = if (applyHorizontalInsets) right else Spacing.Inset,
-        bottom = bottom + Spacing.BottomBreathing
-    )
 }
