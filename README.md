@@ -45,6 +45,10 @@ described in [RELEASING.md](./RELEASING.md), or place a keystore at the git-igno
 
 ## Contributing
 
+Mossdial is open source, but it is maintained as a pull-request-only repository: only the maintainer
+commits and pushes to `master`. Fork the repository, open a pull request, and let the maintainer
+review and merge it; direct write access is not granted.
+
 Read [CONTRIBUTING.md](./CONTRIBUTING.md) first. Report suspected vulnerabilities according to
 [SECURITY.md](./SECURITY.md), and see [RELEASING.md](./RELEASING.md) for release steps.
 

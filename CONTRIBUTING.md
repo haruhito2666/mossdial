@@ -27,6 +27,12 @@ the class after what it covers.
 
 ## Pull requests
 
+Mossdial is open source, but it is maintained as a pull-request-only repository. Only the maintainer
+commits and pushes to `master`; contributors should fork the repository, work on a branch in their
+fork, and open a pull request. Do not ask for direct write access, and do not push branches to this
+repository. The maintainer reviews every pull request, may request changes, and performs the final
+commit and merge. Opening a pull request does not guarantee that it will be merged.
+
 - Keep changes focused and include tests for behavioural changes.
 - Do not commit models, vocabularies, APKs, keystores, generated build output, or local SDK
   configuration. The ignore rules already cover these; if something slipped through, that is a bug
@@ -46,7 +52,7 @@ the class after what it covers.
 
 Dependency verification is on: `mossdial/gradle/verification-metadata.xml` pins a checksum for every
 resolved artifact and Gradle fails on anything else. After changing a dependency, regenerate it and
-commit the result in the same change:
+include the result in the same pull request:
 
 ```bash
 cd mossdial
