@@ -4,23 +4,26 @@ Thank you for helping improve Mossdial.
 
 ## Development
 
-1. Install JDK 17, Android SDK 35, NDK 27 (`27.0.12077973`) and CMake 3.22.1. The NDK and CMake are
-   not optional: the llama.cpp runtime is compiled from the vendored sources, and the AI tab does not
-   work without it. Targets are `arm64-v8a` and `x86_64`.
-2. Run `./gradlew :app:assembleDebug` and `./gradlew :app:testDebugUnitTest` from `mossdial/`.
+1. Install JDK 17, Android SDK 35, NDK 27 (`27.0.12077973`), CMake 3.22.1 and Go 1.27 or newer.
+   The NDK and CMake are not optional: the llama.cpp runtime is compiled from the vendored sources,
+   and the AI tab does not work without it. Go and the NDK also compile the bundled Cloudflare tunnel
+   engine with cgo, which is what gives it Android's DNS resolver. Targets are `arm64-v8a` and
+   `x86_64`.
+2. Run `./gradlew :app:assembleRelease` and `./gradlew :app:testReleaseUnitTest` from `mossdial/`.
 3. Before opening a pull request, run the full check:
 
    ```bash
-   ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease \
-     :app:assembleAndroidTest :app:lintDebug :app:lintVitalRelease
+   ./gradlew :app:testReleaseUnitTest :app:assembleRelease \
+     :app:lintRelease :app:lintVitalRelease
    ```
 
-   `:app:assembleRelease` is not optional here: the release build minifies, and the two third-party
+   The release variant is the only one built and tested: it minifies, and the two third-party
    runtimes are kept alive by the app's own `app/proguard-rules.pro` rather than by rules in their
    published artifacts. A stripped class only fails on a device, not in CI.
 
-There is no instrumentation test source set yet. A JVM test that can run without a device is always
-preferred; add to `app/src/test/java/com/mossdial/` and name the class after what it covers.
+Device tests live under `app/src/androidTest/` but are not part of the release-only check. A JVM test
+that can run without a device is always preferred; add to `app/src/test/java/com/mossdial/` and name
+the class after what it covers.
 
 ## Pull requests
 
@@ -47,8 +50,8 @@ commit the result in the same change:
 
 ```bash
 cd mossdial
-./gradlew --write-verification-metadata sha256 :app:assembleDebug :app:assembleRelease \
-  :app:assembleAndroidTest :app:testDebugUnitTest :app:lintDebug
+./gradlew --write-verification-metadata sha256 :app:assembleRelease \
+  :app:testReleaseUnitTest :app:lintRelease
 ```
 
 Never "fix" a verification failure by deleting the entry. A mismatch is either a corrupted download

@@ -20,6 +20,7 @@ import com.mossdial.aiapi.AiControllerApiBackend
 import com.mossdial.data.AiApiSettings
 import com.mossdial.data.ServerSettings
 import com.mossdial.data.ServerSettingsRules
+import com.mossdial.data.SiteInspector
 import com.mossdial.data.TunnelSettings
 import com.mossdial.data.WebRoot
 import com.mossdial.server.LocalHttpServer
@@ -31,6 +32,7 @@ class ServerService : Service() {
     companion object {
         const val ACTION_START = "com.mossdial.action.START"
         const val ACTION_STOP = "com.mossdial.action.STOP"
+        const val ACTION_RESTART = "com.mossdial.action.RESTART"
         const val EXTRA_PORT = "port"
         const val EXTRA_ALLOW_LAN = "allow_lan"
         const val EXTRA_ENABLE_SSL = "enable_ssl"
@@ -103,6 +105,16 @@ class ServerService : Service() {
             enterForeground(ServerState.snapshot())
             stopServer()
             return START_NOT_STICKY
+        }
+        if (action == ACTION_RESTART) {
+            // A site folder, site type or base path changed while the listener was up. Rebuild the
+            // listener with the stored configuration without dropping the foreground service.
+            settings.desiredRunning = true
+            startAttempts = 0
+            val requested = requestedStatus(settings)
+            enterForeground(requested)
+            restartServer(requested)
+            return START_STICKY
         }
 
         val requested = when {
@@ -181,15 +193,25 @@ class ServerService : Service() {
         val requestLogging = settings.requestLogging
         Thread({
             val instance = try {
+                val siteRoot = WebRoot.serveRoot(this, settings.sitePath)
+                // A build made for GitHub Pages asks for /repo/... while the imported folder is
+                // served at /. Detect that prefix once at start so the same tree works in both
+                // places; an explicit setting always wins.
+                val siteBasePath = settings.siteBasePath.ifEmpty {
+                    runCatching { SiteInspector.detectBasePath(siteRoot) }.getOrDefault("")
+                }
                 LocalHttpServer(
                     config = ServerConfig(
                         port = requested.port,
                         bindAddress = ServerSettingsRules.bindAddress(requested.allowLan),
                         enableTls = requested.enableTls,
                         enableLogging = requestLogging,
-                        requestLogCapacity = settings.requestLogLines
+                        requestLogCapacity = settings.requestLogLines,
+                        spaFallback = settings.siteKind.spaFallback,
+                        siteBasePath = siteBasePath,
+                        backendPort = if (settings.backendEnabled) settings.backendPort else 0
                     ),
-                    root = WebRoot.ensure(this),
+                    root = siteRoot,
                     // Logcat is a request log too: with logging off, a path must not end up there
                     // either, or the setting would only be hiding half of what it promises.
                     onRequest = { request ->
@@ -454,6 +476,33 @@ class ServerService : Service() {
     /** Method, path, status and duration only: never a header, a body or the token. */
     private fun aiApiLogLine(request: AiApiRequest): String =
         "${request.method} ${request.path} -> ${request.status} in ${request.millis}ms"
+
+    /**
+     * Closes the current listeners and opens new ones with the stored settings, without leaving the
+     * foreground.
+     *
+     * This is the same serial dance as a stop followed by a start: the old attempt is invalidated
+     * first, so a start that is still opening a socket cannot adopt itself after the restart.
+     * Pending retries are cancelled because they describe the old configuration.
+     */
+    private fun restartServer(requested: ServerStatus) {
+        mainHandler.removeCallbacksAndMessages(null)
+        startAttempts = 0
+        synchronized(lifecycle) {
+            attemptSerial += 1
+            starting = false
+            val serverToStop = server
+            server = null
+            val aiToStop = aiApi
+            aiApi = null
+            runCatching { serverToStop?.stop() }
+            runCatching { aiToStop?.stop() }
+        }
+        AiApiState.publish(AiApiStatus.STOPPED)
+        TrafficState.clear()
+        publish(requested)
+        startServer(requested)
+    }
 
     private fun stopServer(publishStopped: Boolean = true) {
         mainHandler.removeCallbacksAndMessages(null)

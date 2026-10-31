@@ -82,6 +82,68 @@ fun LanAccessSetting(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     )
 }
 
+/** The loopback port the user's own backend runtime listens on. */
+@Composable
+fun BackendPortField(
+    settings: ServerSettings,
+    modifier: Modifier = Modifier,
+    onPortChange: (Int) -> Unit = {}
+) {
+    var portText by remember { mutableStateOf(settings.backendPort.toString()) }
+    var portError by remember { mutableStateOf("") }
+
+    OutlinedTextField(
+        value = portText,
+        onValueChange = { value ->
+            val digits = value.filter(Char::isDigit).take(ServerSettingsRules.MAX_PORT_DIGITS)
+            portText = digits
+            val parsed = ServerSettingsRules.parsePort(digits)
+            portError = when {
+                digits.isEmpty() -> ""
+                parsed == null -> "Use a port between " +
+                    "${ServerSettingsRules.MIN_PORT} and ${ServerSettingsRules.MAX_PORT}"
+                else -> {
+                    settings.backendPort = parsed
+                    onPortChange(parsed)
+                    ""
+                }
+            }
+        },
+        label = { Text("Backend port") },
+        supportingText = {
+            Text(portError.ifEmpty { "Default ${ServerSettings.DEFAULT_BACKEND_PORT}" })
+        },
+        isError = portError.isNotEmpty(),
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = modifier.fillMaxWidth()
+    )
+}
+
+/** The optional prefix a static build expects, such as `repo` for a GitHub Pages project. */
+@Composable
+fun BasePathField(
+    settings: ServerSettings,
+    modifier: Modifier = Modifier
+) {
+    var baseText by remember { mutableStateOf(settings.siteBasePath) }
+
+    OutlinedTextField(
+        value = baseText,
+        onValueChange = { value ->
+            val bounded = value.take(200)
+            baseText = bounded
+            settings.siteBasePath = bounded
+        },
+        label = { Text("Base path") },
+        supportingText = {
+            Text("Optional. Enter repo when the build expects /repo/ paths.")
+        },
+        singleLine = true,
+        modifier = modifier.fillMaxWidth()
+    )
+}
+
 /** Whether the site is served over TLS with the app's own certificate. */
 @Composable
 fun HttpsSetting(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {

@@ -35,6 +35,8 @@ import com.mossdial.service.ServerPhase
 import com.mossdial.service.ServerState
 import com.mossdial.service.ServerStatus
 import com.mossdial.ui.components.Band
+import com.mossdial.ui.components.BackendPortField
+import com.mossdial.ui.components.BasePathField
 import com.mossdial.ui.components.ChoiceChip
 import com.mossdial.ui.components.ChipRow
 import com.mossdial.ui.components.FieldLabel
@@ -77,6 +79,7 @@ fun ServerSettingsScreen(
     var autoStart by remember { mutableStateOf(settings.autoStart) }
     var logging by remember { mutableStateOf(settings.requestLogging) }
     var logLines by remember { mutableStateOf(settings.requestLogLines) }
+    var backendEnabled by remember { mutableStateOf(settings.backendEnabled) }
 
     val handler = remember { Handler(Looper.getMainLooper()) }
     // The server publishes on every phase change and nowhere else, so a listener is exact where a
@@ -167,6 +170,43 @@ fun ServerSettingsScreen(
                 settings.enableSsl = it
             }
             SupportingText("Applies on the next start.")
+        }
+
+        item { Band() }
+
+        pageSection {
+            SectionHeader(title = "Site paths")
+            BasePathField(settings = settings)
+            SupportingText(
+                text = "The hosted folder is chosen in Files. This prefix is only needed when a " +
+                    "build expects a subpath such as /repo/. Applies on the next start."
+            )
+        }
+
+        item { Band() }
+
+        pageSection {
+            SectionHeader(title = "Backend runtime")
+            SwitchRow(
+                checked = backendEnabled,
+                onCheckedChange = {
+                    backendEnabled = it
+                    settings.backendEnabled = it
+                },
+                title = "Proxy to a local backend",
+                summary = if (backendEnabled) {
+                    "Next.js, Node, Bun, Deno, Python, PHP or any local HTTP runtime on port ${settings.backendPort}."
+                } else {
+                    "Off. The listener serves files only."
+                }
+            )
+            if (backendEnabled) {
+                BackendPortField(settings = settings)
+                SupportingText(
+                    text = "Start your runtime on this phone first. Mossdial forwards requests to " +
+                        "127.0.0.1 and never starts or manages the process."
+                )
+            }
         }
 
         item { Band() }

@@ -3,5 +3,9 @@ Copyright 2026 haruhito
 
 This product includes software developed by the Mossdial contributors.
 
+This product includes Cloudflare cloudflared, licensed under the Apache License 2.0.
+The engine is compiled at build time from the pinned Cloudflare source and packaged
+as libcloudflared.so; see mossdial/LICENSES/THIRD_PARTY.md.
+
 Third-party components retain their own copyright and license terms. See the
 LICENSES directory and the upstream license files for details.

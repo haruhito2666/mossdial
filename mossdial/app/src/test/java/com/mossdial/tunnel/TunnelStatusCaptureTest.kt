@@ -10,12 +10,12 @@ class TunnelStatusCaptureTest {
     @Test
     fun keepsOnlyTheMostRecentBoundedTail() {
         var tail: String? = null
-        repeat(400) { index ->
+        repeat(2_000) { index ->
             tail = TunnelStatusCapture.append(tail.orEmpty(), "chunk-$index ", secrets)
         }
 
         assertTrue(tail!!.length <= TunnelStatusCapture.MAX_KEPT_CHARS)
-        assertTrue(tail!!.endsWith("chunk-399 "))
+        assertTrue(tail!!.endsWith("chunk-1999 "))
         assertFalse(tail!!.contains("chunk-0 "))
     }
     @Test

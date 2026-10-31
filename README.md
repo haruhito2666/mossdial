@@ -22,20 +22,20 @@ runtime is compiled from vendored sources rather than shipped as a binary.
 
 ```bash
 cd mossdial
-./gradlew :app:assembleDebug
+./gradlew :app:assembleRelease
 ```
 
 The full check used before a release:
 
 ```bash
 cd mossdial
-./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease \
-  :app:assembleAndroidTest :app:lintDebug :app:lintVitalRelease
+./gradlew :app:testReleaseUnitTest :app:assembleRelease \
+  :app:lintRelease :app:lintVitalRelease
 ```
 
-As of now this passes: 370 JVM tests, all three assembles, and lint clean on both variants. No feature
-has yet been exercised on a device or emulator — [RELEASING.md](./RELEASING.md) has the checklist
-that closes that gap.
+As of now this passes: 423 JVM tests, the release assembly, and release lint. No feature has yet been
+exercised on a device or emulator — [RELEASING.md](./RELEASING.md) has the checklist that closes that
+gap.
 
 ## Release signing
 

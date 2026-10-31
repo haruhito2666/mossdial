@@ -24,12 +24,21 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      # The bundled tunnel engine is compiled from the pinned cloudflared source, and cloudflared
+      # requires Go 1.27.3. Its cgo build is what gives the binary Android's resolver; a pure-Go
+      # build cannot resolve the Cloudflare API on a phone.
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+          cache: false
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
 
       # The NDK and CMake are not optional: the llama.cpp runtime is compiled from the vendored
       # sources during the build, and the version here has to match ndkVersion and the cmake version
-      # in app/build.gradle.kts. Without them :app:assembleDebug fails at the native build step
+      # in app/build.gradle.kts. Without them :app:assembleRelease fails at the native build step
       # rather than at anything to do with the code.
       - name: Install Android packages
         run: |
@@ -55,18 +64,18 @@ jobs:
             exit 1
           fi
 
-      # assembleRelease is in this list deliberately. Minification is where the two third-party
+      # Release is the only variant built and tested. Minification is where the two third-party
       # runtimes can be stripped, since neither ships consumer rules, and a stripped class fails on
       # a device rather than here. This catches the build failing; it does not catch the runtime
       # failure, which is what the device checklist in RELEASING.md is for.
-      - name: Build, test and lint
+      - name: Build, test and lint the release
         run: |
-          ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease \
-                    :app:assembleAndroidTest :app:lintDebug :app:lintVitalRelease
+          ./gradlew :app:testReleaseUnitTest :app:assembleRelease \
+                    :app:lintRelease :app:lintVitalRelease
 
-      - name: Upload the debug APK
+      - name: Upload the release APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: mossdial-debug
-          path: mossdial/app/build/outputs/apk/debug/app-debug.apk
+          name: mossdial-release
+          path: mossdial/app/build/outputs/apk/release/*.apk
           if-no-files-found: error

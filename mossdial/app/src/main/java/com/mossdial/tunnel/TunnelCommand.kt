@@ -10,16 +10,27 @@ package com.mossdial.tunnel
 object TunnelCommand {
     private const val REDACTED = "***"
 
-    /** Subcommand sequence, token included. Never log the result of this function. */
-    fun arguments(config: TunnelConfig): List<String> = listOf(
-        "tunnel",
-        "--no-autoupdate",
-        "run",
-        "--token",
-        config.token,
-        "--protocol",
-        config.protocol
-    )
+    /** Subcommand sequence. Without a token for a quick tunnel. Never log a named result. */
+    fun arguments(config: TunnelConfig): List<String> = if (config.quick) {
+        listOf(
+            "tunnel",
+            "--no-autoupdate",
+            "--url",
+            "http://127.0.0.1:${config.port}",
+            "--protocol",
+            config.protocol
+        )
+    } else {
+        listOf(
+            "tunnel",
+            "--no-autoupdate",
+            "run",
+            "--token",
+            config.token,
+            "--protocol",
+            config.protocol
+        )
+    }
 
     /** Full command, executable first. Never log the result of this function. */
     fun command(config: TunnelConfig): List<String> =

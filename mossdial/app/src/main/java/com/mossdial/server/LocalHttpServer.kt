@@ -37,6 +37,10 @@ class LocalHttpServer(
      */
     private val trustProxyHeaders: () -> Boolean = { false }
 ) : Closeable {
+    private val proxy: ReverseProxy? = config.backendPort
+        .takeIf { it != 0 }
+        ?.let { ReverseProxy(it, config.backendMaxBodyBytes) }
+
     companion object {
         private const val MAX_REQUEST_LINE = 8 * 1024
         private const val MAX_HEADER_LINE = 8 * 1024
@@ -186,7 +190,13 @@ class LocalHttpServer(
         val output = socket.getOutputStream()
         val requestLine = readLine(input, MAX_REQUEST_LINE) ?: return
         val parts = requestLine.split(' ', limit = 3)
-        val method = parts.getOrNull(0)?.takeIf { it == "GET" || it == "HEAD" } ?: "-"
+        // A backend may need the methods that carry or change state; the file server does not.
+        val allowedMethods = if (proxy != null) {
+            setOf("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+        } else {
+            setOf("GET", "HEAD")
+        }
+        val method = parts.getOrNull(0)?.takeIf { it in allowedMethods } ?: "-"
         val target = parts.getOrNull(1)?.substringBefore('?')
         val loggedPath = logPath(target)
         val headers = readHeaders(input)
@@ -221,13 +231,45 @@ class LocalHttpServer(
             recordRequest(method, loggedPath, 400, bytes)
             return
         }
-        headers["content-length"]?.let { value ->
-            if (value.toLongOrNull() != 0L) {
-                val bytes = withWriteTimeout(socket, output) {
-                    sendError(output = it, status = 400, message = "Bad Request", headOnly = method == "HEAD")
+        val bodyLength = headers["content-length"]?.toLongOrNull()
+        if (proxy == null) {
+            headers["content-length"]?.let { value ->
+                if (value.toLongOrNull() != 0L) {
+                    val bytes = withWriteTimeout(socket, output) {
+                        sendError(output = it, status = 400, message = "Bad Request", headOnly = method == "HEAD")
+                    }
+                    recordRequest(method, loggedPath, 400, bytes)
+                    return
                 }
-                recordRequest(method, loggedPath, 400, bytes)
-                return
+            }
+        } else {
+            when {
+                bodyLength != null && bodyLength < 0 -> {
+                    val bytes = withWriteTimeout(socket, output) {
+                        sendError(output = it, status = 400, message = "Bad Request", headOnly = method == "HEAD")
+                    }
+                    recordRequest(method, loggedPath, 400, bytes)
+                    return
+                }
+                bodyLength != null && bodyLength > config.backendMaxBodyBytes -> {
+                    val bytes = withWriteTimeout(socket, output) {
+                        sendError(
+                            output = it,
+                            status = 413,
+                            message = "Request Entity Too Large",
+                            headOnly = method == "HEAD"
+                        )
+                    }
+                    recordRequest(method, loggedPath, 413, bytes)
+                    return
+                }
+                method !in setOf("GET", "HEAD") && bodyLength == null -> {
+                    val bytes = withWriteTimeout(socket, output) {
+                        sendError(output = it, status = 411, message = "Length Required", headOnly = false)
+                    }
+                    recordRequest(method, loggedPath, 411, bytes)
+                    return
+                }
             }
         }
         if (method == "-") {
@@ -237,7 +279,40 @@ class LocalHttpServer(
             recordRequest(method, loggedPath, 405, bytes)
             return
         }
-        val file = StaticFiles.resolve(root, target!!)
+        val activeProxy = proxy
+        if (activeProxy != null) {
+            val outcome = try {
+                withWriteTimeout(socket, output) { timed ->
+                    activeProxy.forward(
+                        request = ProxyRequest(
+                            method = method,
+                            target = target!!,
+                            headers = headers,
+                            body = input,
+                            bodyLength = bodyLength ?: 0L,
+                            clientAddress = socket.inetAddress.hostAddress ?: "-",
+                            scheme = if (config.enableTls) "https" else "http",
+                            headOnly = method == "HEAD"
+                        ),
+                        output = timed
+                    )
+                }
+            } catch (_: IOException) {
+                val bytes = withWriteTimeout(socket, output) {
+                    sendError(
+                        output = it,
+                        status = 502,
+                        message = "Bad Gateway",
+                        headOnly = method == "HEAD"
+                    )
+                }
+                recordRequest(method, loggedPath, 502, bytes)
+                return
+            }
+            recordRequest(method, loggedPath, outcome.status, outcome.bytes)
+            return
+        }
+        val file = StaticFiles.resolveSite(root, target!!, config.spaFallback, config.siteBasePath)
         if (file == null) {
             val bytes = withWriteTimeout(socket, output) {
                 sendError(output = it, status = 404, message = "Not Found", headOnly = method == "HEAD")
@@ -411,8 +486,6 @@ class LocalHttpServer(
             if (compressible) append("Vary: Accept-Encoding\r\n")
             append("Cache-Control: no-cache\r\n")
             append("X-Content-Type-Options: nosniff\r\n")
-            append("Content-Security-Policy: default-src 'self'; object-src 'none'; base-uri 'none'\r\n")
-            append("Referrer-Policy: no-referrer\r\n")
             append("Connection: close\r\n\r\n")
         }
         output.write(headers.toByteArray(StandardCharsets.US_ASCII))
@@ -441,8 +514,6 @@ class LocalHttpServer(
             if (GzipEncoding.isCompressible(contentType)) append("Vary: Accept-Encoding\r\n")
             append("Cache-Control: no-cache\r\n")
             append("X-Content-Type-Options: nosniff\r\n")
-            append("Content-Security-Policy: default-src 'self'; object-src 'none'; base-uri 'none'\r\n")
-            append("Referrer-Policy: no-referrer\r\n")
             append("Connection: close\r\n\r\n")
         }
         output.write(headers.toByteArray(StandardCharsets.US_ASCII))

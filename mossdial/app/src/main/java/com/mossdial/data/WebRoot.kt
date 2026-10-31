@@ -50,4 +50,23 @@ object WebRoot {
         }
         return root
     }
+
+    /**
+     * The directory the server should serve: the web root itself, or a folder inside it.
+     *
+     * [sitePath] is the user's choice of which site to host. It is resolved through the same path
+     * checks the file manager uses, so a value that is missing, a file, or outside the web root is
+     * refused here rather than silently widened into serving something else.
+     */
+    fun serveRoot(context: Context, sitePath: String): File {
+        val root = ensure(context)
+        val trimmed = sitePath.trim().trim('/')
+        if (trimmed.isEmpty()) return root
+        val resolved = WebRootFileStore(root).resolve(trimmed)
+            ?: throw SecurityException("The hosted folder is not inside the web root")
+        if (!resolved.isDirectory) {
+            throw java.io.FileNotFoundException("The hosted folder is missing")
+        }
+        return resolved
+    }
 }

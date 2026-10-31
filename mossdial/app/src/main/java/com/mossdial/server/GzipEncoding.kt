@@ -25,10 +25,12 @@ object GzipEncoding {
             mediaType in setOf(
                 "application/json",
                 "application/javascript",
+                "application/wasm",
                 "application/xml",
                 "application/xhtml+xml",
                 "application/atom+xml",
-                "application/rss+xml"
+                "application/rss+xml",
+                "image/svg+xml"
             ) ||
             mediaType.endsWith("+json") ||
             mediaType.endsWith("+xml")

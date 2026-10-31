@@ -432,18 +432,26 @@ private fun MetricsSection(
                 modifier = Modifier.weight(1f)
             ) {
                 val animated = animateIntAsState(
-                    targetValue = traffic.totalRequests.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                    targetValue = if (running) {
+                        traffic.totalRequests.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                    } else {
+                        0
+                    },
                     animationSpec = tween(600),
                     label = "requests"
                 )
-                String.format(Locale.getDefault(), "%,d", animated.value)
+                if (running) {
+                    String.format(Locale.getDefault(), "%,d", animated.value)
+                } else {
+                    "—"
+                }
             }
             MetricHairline()
             MetricCell(
                 label = "Data sent",
                 modifier = Modifier.weight(1f)
             ) {
-                formatBytes(traffic.bytesSent)
+                if (running) formatBytes(traffic.bytesSent) else "—"
             }
             MetricHairline()
             MetricCell(
@@ -555,11 +563,9 @@ private fun AnalyticsSection(
 ) {
     val statusCounts = live.traffic.statusCounts
     val samples = live.samples
-    // The panels are drawn whether or not the server is up: a still chart and an empty ring are a
-    // read-out saying "nothing yet", and a page that grows its charts only once traffic exists looks
-    // like it is missing something. A stopped server plots a flat line at its floor.
-    val requestValues = if (running) samples.map { it.requestsDelta.toFloat() } else List(60) { 0f }
-    val byteValues = if (running) samples.map { it.bytesDelta.toFloat() } else List(60) { 0f }
+    // Nothing is plotted until the server has actually produced samples. A synthetic flat series
+    // would be a chart of data that never happened; an empty panel says that honestly.
+    val hasTraffic = running && samples.isNotEmpty()
 
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.Gap)) {
         MicroLabelText("Live")
@@ -567,29 +573,33 @@ private fun AnalyticsSection(
         // area bounds a chart, with each caption inside it, tight against its line, so a
         // reader never has to guess which name belongs to which graph.
         ShadedPanel {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.Snug)) {
-                ChartCaption(
-                    title = "Requests · per second",
-                    current = if (running) "${samples.lastOrNull()?.requestsDelta ?: 0}/s" else "—",
-                    accent = true
-                )
-                MiniAreaChart(values = requestValues, height = 96.dp)
-            }
-            RowDivider()
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.Snug)) {
-                ChartCaption(
-                    title = "Data · per second",
-                    current = if (running) {
-                        "${formatBytes(samples.lastOrNull()?.bytesDelta ?: 0)}/s"
-                    } else {
-                        "—"
-                    },
-                    accent = false
-                )
-                MiniAreaChart(
-                    values = byteValues,
-                    lineColor = MaterialTheme.colorScheme.onSurface,
-                    height = 96.dp
+            if (hasTraffic) {
+                val requestValues = samples.map { it.requestsDelta.toFloat() }
+                val byteValues = samples.map { it.bytesDelta.toFloat() }
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.Snug)) {
+                    ChartCaption(
+                        title = "Requests · per second",
+                        current = "${samples.last().requestsDelta}/s",
+                        accent = true
+                    )
+                    MiniAreaChart(values = requestValues, height = 96.dp)
+                }
+                RowDivider()
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.Snug)) {
+                    ChartCaption(
+                        title = "Data · per second",
+                        current = "${formatBytes(samples.last().bytesDelta)}/s",
+                        accent = false
+                    )
+                    MiniAreaChart(
+                        values = byteValues,
+                        lineColor = MaterialTheme.colorScheme.onSurface,
+                        height = 96.dp
+                    )
+                }
+            } else {
+                SupportingText(
+                    if (running) "Waiting for the first request." else "No traffic recorded yet."
                 )
             }
         }
@@ -598,29 +608,29 @@ private fun AnalyticsSection(
             MicroLabelText("Answer mix")
             val classes = answerClasses(statusCounts)
             val total = classes.sumOf { it.count }
-            Row(
-                modifier = Modifier.padding(top = Spacing.Base),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Spacing.Gap)
-            ) {
-                DonutChart(
-                    segments = classes.map { answerClass ->
-                        DonutSegment(
-                            weight = answerClass.count.toFloat(),
-                            color = answerClassColor(answerClass.label)
-                        )
-                    },
-                    centerValue = String.format(Locale.getDefault(), "%,d", total),
-                    centerLabel = "requests",
-                    modifier = Modifier.size(120.dp)
-                )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.Snug)
+            if (total == 0L) {
+                SupportingText("No responses yet.")
+            } else {
+                Row(
+                    modifier = Modifier.padding(top = Spacing.Base),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.Gap)
                 ) {
-                    if (total == 0L) {
-                        SupportingText("Nothing served yet.")
-                    } else {
+                    DonutChart(
+                        segments = classes.map { answerClass ->
+                            DonutSegment(
+                                weight = answerClass.count.toFloat(),
+                                color = answerClassColor(answerClass.label)
+                            )
+                        },
+                        centerValue = String.format(Locale.getDefault(), "%,d", total),
+                        centerLabel = "requests",
+                        modifier = Modifier.size(120.dp)
+                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.Snug)
+                    ) {
                         classes.forEach { answerClass ->
                             val share = answerClass.count * 100 / total
                             Row(

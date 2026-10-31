@@ -92,6 +92,40 @@ class ServerSettingsTest {
     }
 
     @Test
+    fun persistsTheHostedSiteFolderAndItsKind() {
+        val values = mutableMapOf<String, Any>()
+        val settings = ServerSettings(FakePreferenceStore(values))
+        assertEquals("", settings.sitePath)
+        assertEquals(SiteKind.CUSTOM, settings.siteKind)
+        assertEquals("", settings.siteBasePath)
+
+        settings.sitePath = "/docs/site/"
+        settings.siteKind = SiteKind.SPA
+        settings.siteBasePath = "/repo/"
+
+        assertEquals("docs/site", settings.sitePath)
+        assertEquals(SiteKind.SPA, settings.siteKind)
+        assertEquals("repo", settings.siteBasePath)
+
+        val reopened = ServerSettings(FakePreferenceStore(values))
+        assertEquals("docs/site", reopened.sitePath)
+        assertEquals(SiteKind.SPA, reopened.siteKind)
+        assertEquals("repo", reopened.siteBasePath)
+        assertTrue(reopened.siteKind.spaFallback)
+
+        settings.sitePath = "  "
+        settings.siteBasePath = "../outside"
+
+        assertEquals("", settings.sitePath)
+        assertEquals("", settings.siteBasePath)
+
+        val hostile = ServerSettings(
+            FakePreferenceStore(mutableMapOf("site_kind" to "not-a-kind"))
+        )
+        assertEquals(SiteKind.CUSTOM, hostile.siteKind)
+    }
+
+    @Test
     fun theDesiredRunningIntentIsSeparateFromAutoStartAndSurvivesAReopen() {
         val values = mutableMapOf<String, Any>()
         val settings = ServerSettings(FakePreferenceStore(values))

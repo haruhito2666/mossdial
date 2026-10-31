@@ -33,15 +33,17 @@ The server binds to the device loopback interface by default. LAN access is disa
 must be explicitly enabled by the user, in the same way for the local AI API on its own port.
 
 Cloudflare Tunnel is an optional remote-tunnel integration and is not required for local hosting. It
-runs only when you supply a `cloudflared` executable by absolute path and a tunnel token. The token is
-stored encrypted on the device and is never written to a log.
+runs only when you enable it. A named tunnel needs a tunnel token; a Quick test URL mode uses a
+temporary `trycloudflare.com` link with no token. The app includes a pinned `cloudflared` engine
+inside the APK; advanced users may instead point it at their own executable by absolute path. The
+token is stored encrypted on the device and is never written to a log.
 
-A tunnel here is a token-based named tunnel: the app passes the token to `cloudflared tunnel run` and
-nothing else, so the public hostname and the local ports it reaches are configured in your own
-Cloudflare dashboard, not in the app. The app cannot enforce which of this device's ports that
-configuration exposes. Map only the web server's port in the tunnel's ingress configuration: if the
-AI API's port is mapped there too, the bearer token is the only thing protecting an endpoint that can
-make this device generate text and embed text.
+A named tunnel is token-based: the app passes the token to `cloudflared tunnel run` and nothing else,
+so the public hostname and the local ports it reaches are configured in your own Cloudflare dashboard,
+not in the app. The app cannot enforce which of this device's ports that configuration exposes. Map
+only the web server's port in the tunnel's ingress configuration: if the AI API's port is mapped there
+too, the bearer token is the only thing protecting an endpoint that can make this device generate text
+and embed text. A Quick test URL publishes only the site port and stops working when the tunnel stops.
 
 Model downloads happen only when you ask for one, only over `https://`, only from the URL you supply,
 and only into the app-private model directory. No model catalog, telemetry endpoint, or analytics

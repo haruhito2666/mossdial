@@ -29,10 +29,12 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.NoteAdd
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
 
@@ -48,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,12 +62,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.mossdial.data.GitHubSiteImporter
 import com.mossdial.data.ManagedFile
+import com.mossdial.data.ServerSettings
+import com.mossdial.data.SiteArchiveImporter
+import com.mossdial.data.SiteInspector
+import com.mossdial.data.SiteInspection
+import com.mossdial.data.SiteKind
 import com.mossdial.data.WebRoot
 import com.mossdial.data.WebRootFileStore
-import com.mossdial.ui.components.Band
+import com.mossdial.service.ServerControl
+import com.mossdial.service.ServerState
 import com.mossdial.ui.components.ButtonContent
 import com.mossdial.ui.components.ButtonRow
+import com.mossdial.ui.components.ChoiceChip
+import com.mossdial.ui.components.ChipRow
 import com.mossdial.ui.components.EmptyState
 import com.mossdial.ui.components.ErrorNotice
 import com.mossdial.ui.components.MicroLabelText
@@ -73,6 +85,7 @@ import com.mossdial.ui.components.PageSection
 import com.mossdial.ui.components.PrimaryButton
 import com.mossdial.ui.components.RowDivider
 import com.mossdial.ui.components.SecondaryButton
+import com.mossdial.ui.components.SupportingText
 import com.mossdial.ui.theme.Control
 import com.mossdial.ui.theme.Spacing
 import java.io.FileNotFoundException
@@ -85,6 +98,7 @@ fun FileManagerScreen(
 ) {
     val context = LocalContext.current
     val store = remember { WebRootFileStore(WebRoot.ensure(context)) }
+    val settings = remember { ServerSettings(context) }
     val executor = remember { Executors.newSingleThreadExecutor() }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     var currentPath by rememberSaveable { mutableStateOf("") }
@@ -95,11 +109,19 @@ fun FileManagerScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showCreateTextDialog by remember { mutableStateOf(false) }
     var showCreateDirectoryDialog by remember { mutableStateOf(false) }
+    var showGitHubDialog by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<ManagedFile?>(null) }
     var renameText by rememberSaveable { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<ManagedFile?>(null) }
     var createName by rememberSaveable { mutableStateOf("") }
     var createContent by rememberSaveable { mutableStateOf("") }
+    var githubRepository by rememberSaveable { mutableStateOf("") }
+    var githubBranch by rememberSaveable { mutableStateOf("") }
+    var hostingPath by remember { mutableStateOf(settings.sitePath) }
+    var siteKind by remember { mutableStateOf(settings.siteKind) }
+    var inspection by remember { mutableStateOf<SiteInspection?>(null) }
+    val githubImporter = remember { GitHubSiteImporter(context.cacheDir) }
+    val archiveImporter = remember { SiteArchiveImporter(context.cacheDir) }
 
     fun operationError(error: Exception) {
         errorMessage = when (error) {
@@ -133,17 +155,102 @@ fun FileManagerScreen(
         }
     }
 
-    fun runOperation(successMessage: String, operation: () -> Unit) {
+    fun <T> runOperation(
+        successMessage: String,
+        after: (T) -> Unit = {},
+        operation: () -> T
+    ) {
         if (isBusy) return
         isBusy = true
         statusMessage = null
         errorMessage = null
         executor.execute {
             try {
-                operation()
+                val result = operation()
                 mainHandler.post {
+                    after(result)
                     isBusy = false
                     statusMessage = successMessage
+                    refresh(currentPath)
+                }
+            } catch (error: Exception) {
+                mainHandler.post {
+                    isBusy = false
+                    operationError(error)
+                }
+            }
+        }
+    }
+
+    /**
+     * Makes [path] the served folder and rebuilds a running listener immediately.
+     *
+     * Changing the setting alone leaves the old root in the live socket, which is exactly how a
+     * correctly imported site can still show the previous page. If the server is up, restart it
+     * with the new root now; if it is not, the next Start reads the same stored value.
+     */
+    fun hostFolder(path: String) {
+        settings.sitePath = path
+        hostingPath = path
+        errorMessage = null
+        if (ServerState.snapshot().isActive) {
+            ServerControl.restart(context, settings)
+            statusMessage = "Hosting ${path.ifEmpty { "the web root" }}. Restarting the server."
+        } else {
+            statusMessage = "Hosting ${path.ifEmpty { "the web root" }}. Start the server to serve it."
+        }
+    }
+
+    fun chooseSiteKind(kind: SiteKind) {
+        siteKind = kind
+        settings.siteKind = kind
+        if (ServerState.snapshot().isActive) {
+            ServerControl.restart(context, settings)
+            statusMessage = "${kind.label} selected. Restarting the server."
+        }
+    }
+
+    /**
+     * Points the server at an imported folder and applies the type/base path the import detected.
+     * Must be called on the main thread.
+     */
+    fun applyImportedSite(path: String, basePath: String, kind: SiteKind, summary: String) {
+        settings.sitePath = path
+        hostingPath = path
+        settings.siteBasePath = basePath
+        settings.siteKind = kind
+        siteKind = kind
+        if (ServerState.snapshot().isActive) {
+            ServerControl.restart(context, settings)
+            statusMessage = "$summary Restarting the server."
+        } else {
+            statusMessage = "$summary Start the server to serve it."
+        }
+    }
+
+    /**
+     * Imports a repository and immediately makes the detected folder the hosted site.
+     *
+     * Importing without hosting is how a correct import still produced a blank localhost page:
+     * the files were there, but the server was still pointed at the web root.
+     */
+    fun importGitHubSite(repositoryText: String, branchText: String?) {
+        if (isBusy) return
+        isBusy = true
+        statusMessage = null
+        errorMessage = null
+        val directory = currentPath
+        executor.execute {
+            try {
+                val imported = githubImporter.import(store, directory, repositoryText, branchText)
+                mainHandler.post {
+                    isBusy = false
+                    applyImportedSite(
+                        path = imported.path,
+                        basePath = imported.basePath,
+                        kind = imported.siteKind,
+                        summary = "Imported and hosting ${imported.path}."
+                    )
                     refresh(currentPath)
                 }
             } catch (error: Exception) {
@@ -169,13 +276,30 @@ fun FileManagerScreen(
                 val name = importedFileName(displayName, uri, mimeType)
                 val input = resolver.openInputStream(uri)
                     ?: throw FileNotFoundException("The selected document is unavailable")
-                input.use {
-                    store.importFile(directory, name, it, mimeType)
-                }
-                mainHandler.post {
-                    isBusy = false
-                    statusMessage = "File imported."
-                    refresh(currentPath)
+                val isSiteArchive = name.endsWith(".zip", ignoreCase = true) ||
+                    mimeType == "application/zip" ||
+                    mimeType == "application/x-zip-compressed"
+                input.use { stream ->
+                    if (isSiteArchive) {
+                        val imported = archiveImporter.import(store, directory, name, stream)
+                        mainHandler.post {
+                            isBusy = false
+                            applyImportedSite(
+                                path = imported.path,
+                                basePath = imported.basePath,
+                                kind = imported.siteKind,
+                                summary = "Imported and hosting ${imported.path}."
+                            )
+                            refresh(currentPath)
+                        }
+                    } else {
+                        store.importFile(directory, name, stream, mimeType)
+                        mainHandler.post {
+                            isBusy = false
+                            statusMessage = "File imported."
+                            refresh(currentPath)
+                        }
+                    }
                 }
             } catch (error: Exception) {
                 mainHandler.post {
@@ -203,6 +327,20 @@ fun FileManagerScreen(
     DisposableEffect(currentPath) {
         refresh(currentPath)
         onDispose { }
+    }
+
+    LaunchedEffect(hostingPath, entries) {
+        val hosted = hostingPath
+        val configuredBasePath = settings.siteBasePath
+        runCatching {
+            executor.execute {
+                val root = if (hosted.isEmpty()) store.resolve("") else store.resolve(hosted)
+                val result = root
+                    ?.takeIf { it.isDirectory }
+                    ?.let { SiteInspector.inspect(it, configuredBasePath) }
+                mainHandler.post { inspection = result }
+            }
+        }
     }
 
     // The page's rhythm matches every other page: one inset section for the controls, a full-width
@@ -238,6 +376,101 @@ fun FileManagerScreen(
                 onNavigate = { currentPath = it }
             )
 
+            // Which folder the server actually serves. The user can keep several sites in the web
+            // root and point the server at one without moving files around.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                MicroLabelText("Hosted site")
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = hostingPath.ifEmpty { "Web root" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            val canHostHere = currentPath.isNotEmpty() && currentPath != hostingPath
+            val canHostRoot = hostingPath.isNotEmpty()
+            if (canHostHere || canHostRoot) {
+                ButtonRow {
+                    if (canHostHere) {
+                        PrimaryButton(
+                            onClick = { hostFolder(currentPath) },
+                            enabled = !isBusy,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            ButtonContent(Icons.Default.Home, "Host this folder")
+                        }
+                    }
+                    if (canHostRoot) {
+                        SecondaryButton(
+                            onClick = { hostFolder("") },
+                            enabled = !isBusy,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            ButtonContent(Icons.Default.FolderOpen, "Host the web root")
+                        }
+                    }
+                }
+            }
+            SupportingText(
+                text = "The server serves this folder. Takes effect on the next server start."
+            )
+
+            // The build shape decides how routes resolve. A SPA needs the index fallback; a static
+            // export already has one file per route, and a plain site should 404 loudly.
+            MicroLabelText("Site type")
+            ChipRow {
+                SiteKind.entries.forEach { kind ->
+                    ChoiceChip(
+                        label = kind.label,
+                        selected = siteKind == kind,
+                        onClick = { chooseSiteKind(kind) },
+                        enabled = !isBusy
+                    )
+                }
+            }
+            SupportingText(siteKind.summary)
+
+            // The server answers `/` with the folder's index page. Check the page and the files it
+            // asks for before the user has to open a browser to discover a blank screen.
+            val site = inspection
+            when {
+                site == null -> Unit
+                !site.hasIndex -> {
+                    Notice(
+                        message = "This folder has no index.html or index.htm. " +
+                            "The server will answer 404 on /."
+                    )
+                }
+                site.indexIsEmpty -> {
+                    Notice(message = "The index page is empty, so the browser will show a blank page.")
+                }
+            }
+            if (site != null && site.missingAssets.isNotEmpty()) {
+                val preview = site.missingAssets.take(3).joinToString(", ")
+                ErrorNotice(
+                    message = "${site.missingAssets.size} referenced file(s) are missing. " +
+                        "The page may load unstyled or blank. First: $preview"
+                )
+            }
+            if (site != null && site.looksUnbuilt) {
+                ErrorNotice(
+                    message = "This page loads framework source, not built output. " +
+                        "Run the site's build and host its dist, out, or build folder."
+                )
+            }
+            if (site != null && site.basePath.isNotEmpty()) {
+                Notice(
+                    message = "Detected base path /${site.basePath}. " +
+                        "It will be removed automatically when the server starts."
+                )
+            }
+
             ButtonRow {
                 PrimaryButton(
                     onClick = {
@@ -270,6 +503,19 @@ fun FileManagerScreen(
                     ButtonContent(Icons.Default.UploadFile, "Import")
                 }
             }
+            SupportingText(
+                "A .zip of a built site is extracted and hosted automatically. " +
+                    "Source zips are refused."
+            )
+            ButtonRow {
+                SecondaryButton(
+                    onClick = { showGitHubDialog = true },
+                    enabled = !isBusy,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    ButtonContent(Icons.Default.CloudDownload, "GitHub site")
+                }
+            }
 
             val feedback = errorMessage ?: statusMessage
             if (feedback != null) {
@@ -284,8 +530,6 @@ fun FileManagerScreen(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
         }
-
-        Band()
 
         if (!isLoading && entries.isEmpty()) {
             Box(
@@ -402,6 +646,50 @@ fun FileManagerScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showCreateDirectoryDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showGitHubDialog) {
+        AlertDialog(
+            onDismissRequest = { showGitHubDialog = false },
+            title = { Text("GitHub site") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.Base)) {
+                    OutlinedTextField(
+                        value = githubRepository,
+                        onValueChange = { githubRepository = it },
+                        label = { Text("Repository") },
+                        supportingText = { Text("owner/repo or a github.com URL") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = githubBranch,
+                        onValueChange = { githubBranch = it },
+                        label = { Text("Branch or tag (optional)") },
+                        singleLine = true
+                    )
+                    Text(
+                        text = "Public repositories only. The folder that holds the site is " +
+                            "detected when it can be.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val repositoryText = githubRepository
+                        val branchText = githubBranch.trim().takeIf { it.isNotEmpty() }
+                        showGitHubDialog = false
+                        importGitHubSite(repositoryText, branchText)
+                    },
+                    enabled = !isBusy && githubRepository.isNotBlank()
+                ) { Text("Import") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGitHubDialog = false }) { Text("Cancel") }
             }
         )
     }
@@ -654,6 +942,7 @@ private fun importedFileName(displayName: String?, uri: Uri, mimeType: String?):
     val extension = when {
         mimeType?.startsWith("text/") == true -> ".txt"
         mimeType == "application/json" -> ".json"
+        mimeType == "application/zip" || mimeType == "application/x-zip-compressed" -> ".zip"
         mimeType?.startsWith("image/") == true -> ".img"
         else -> ""
     }

@@ -194,6 +194,19 @@ class TunnelManagerTest {
         assertTrue(finished.diagnostic, finished.diagnostic.endsWith(TunnelStatusCapture.CLIP_MARKER))
     }
 
+    @Test
+    fun capturesTheGeneratedUrlOfAQuickTunnel() {
+        val executable = standIn(
+            "printf 'INF |  https://quick-test.trycloudflare.com  |\\n' >&2\nexec sleep 300"
+        )
+
+        TunnelManager.start(TunnelConfig.quick(executable.absolutePath, 8080))
+
+        val running = awaitStatus { it.phase == TunnelPhase.Running && it.url.isNotEmpty() }
+
+        assertEquals("https://quick-test.trycloudflare.com", running.url)
+    }
+
     private fun standIn(body: String): File {
         val script = File(directory, "cloudflared-${created++}")
         script.writeText("#!/bin/sh\n$body\n")

@@ -165,16 +165,14 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
-                        .padding(start = Spacing.Inset, end = Spacing.Inset, bottom = Spacing.Snug)
+                        .padding(start = Spacing.Inset, end = Spacing.Inset, bottom = Spacing.Tight)
                 ) {
                     Surface(
                         shape = BarShape,
                         color = MaterialTheme.colorScheme.surface,
-                        // The bar is white on white, so it is separated by a soft standing shadow
-                        // rather than by an outline: a hairline would draw the four straight
-                        // lines this bar is deliberately without, and the shadow never touches
-                        // the thumb the way a tap ripple would.
-                        shadowElevation = 8.dp
+                        // Deliberately flat: the bar is separated by the space around it and by
+                        // its own icons, not by a shadow or an outline.
+                        shadowElevation = 0.dp
                     ) {
                         Row(
                             modifier = Modifier

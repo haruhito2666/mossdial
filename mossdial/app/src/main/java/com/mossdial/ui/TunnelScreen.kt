@@ -29,18 +29,23 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.mossdial.data.SecretStoreException
+import com.mossdial.data.ServerSettings
 import com.mossdial.data.TunnelSettings
+import com.mossdial.tunnel.BundledCloudflared
 import com.mossdial.tunnel.TunnelCommand
 import com.mossdial.tunnel.TunnelConfig
 import com.mossdial.tunnel.TunnelManager
 import com.mossdial.tunnel.TunnelPhase
 import com.mossdial.tunnel.TunnelResolution
 import com.mossdial.tunnel.TunnelStatus
+import com.mossdial.tunnel.TunnelToken
 import com.mossdial.ui.components.Band
 import com.mossdial.ui.components.ButtonContent
 import com.mossdial.ui.components.ButtonRow
@@ -75,7 +80,11 @@ fun TunnelScreen(
 ) {
     val context = LocalContext.current
     val settings = remember { TunnelSettings(context) }
+    val serverSettings = remember { ServerSettings(context) }
     var enabled by remember { mutableStateOf(settings.enabled) }
+    var quick by remember { mutableStateOf(settings.quickTunnel) }
+    var useBundled by remember { mutableStateOf(settings.useBundled) }
+    val bundledAvailable = remember { BundledCloudflared.isAvailable(context) }
     var path by remember { mutableStateOf(settings.executablePath) }
     var protocol by remember { mutableStateOf(settings.protocol) }
     var tokenText by remember { mutableStateOf("") }
@@ -84,6 +93,9 @@ fun TunnelScreen(
     var noticeIsError by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf("") }
     var status by remember { mutableStateOf(TunnelManager.snapshot()) }
+    var copiedUrl by remember { mutableStateOf(false) }
+    var copiedDiagnostic by remember(status.diagnostic) { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
 
     val handler = remember { Handler(Looper.getMainLooper()) }
     // The manager publishes when the phase changes or the process exits, never per output line, so
@@ -98,8 +110,14 @@ fun TunnelScreen(
     }
 
     fun saveToken() {
+        val token = TunnelToken.extract(tokenText)
+        if (token == null) {
+            notice = "Paste the tunnel token, or the full command Cloudflare shows"
+            noticeIsError = true
+            return
+        }
         try {
-            settings.storeToken(tokenText)
+            settings.storeToken(token)
             tokenStored = true
             tokenText = ""
             preview = ""
@@ -120,7 +138,12 @@ fun TunnelScreen(
             noticeIsError = true
             return
         }
-        when (val resolved = settings.resolve()) {
+        val resolution = if (quick) {
+            settings.resolveQuick(serverSettings.port)
+        } else {
+            settings.resolve()
+        }
+        when (val resolved = resolution) {
             is TunnelResolution.Invalid -> {
                 notice = resolved.reason
                 noticeIsError = true
@@ -131,6 +154,7 @@ fun TunnelScreen(
                 preview = TunnelCommand.describe(resolved.config)
                 notice = ""
                 noticeIsError = false
+                copiedUrl = false
                 TunnelManager.start(resolved.config)
                 status = TunnelManager.snapshot()
             }
@@ -149,9 +173,14 @@ fun TunnelScreen(
         pageSection {
             TunnelHero(
                 phase = status.phase,
-                path = path,
+                path = if (useBundled && bundledAvailable) {
+                    "Built-in cloudflared ${BundledCloudflared.VERSION}"
+                } else {
+                    path
+                },
                 protocol = protocol,
-                tokenStored = tokenStored
+                tokenStored = tokenStored,
+                quick = quick
             )
             if (notice.isNotEmpty()) {
                 if (noticeIsError) {
@@ -166,6 +195,38 @@ fun TunnelScreen(
 
         pageSection {
             SectionHeader(title = "Configure")
+            FieldLabel("Mode")
+            ChipRow {
+                ChoiceChip(
+                    label = "Named tunnel",
+                    selected = !quick,
+                    onClick = {
+                        quick = false
+                        settings.quickTunnel = false
+                        notice = ""
+                        copiedUrl = false
+                    },
+                    enabled = !locked
+                )
+                ChoiceChip(
+                    label = "Quick test URL",
+                    selected = quick,
+                    onClick = {
+                        quick = true
+                        settings.quickTunnel = true
+                        notice = ""
+                        copiedUrl = false
+                    },
+                    enabled = !locked
+                )
+            }
+            SupportingText(
+                if (quick) {
+                    "Creates a temporary https://...trycloudflare.com link. No token or domain needed."
+                } else {
+                    "Uses the token and public hostname you configured in Cloudflare."
+                }
+            )
             SwitchRow(
                 checked = enabled,
                 onCheckedChange = {
@@ -175,27 +236,48 @@ fun TunnelScreen(
                 },
                 title = "Enable tunnel",
                 summary = if (enabled) {
-                    "Runs the cloudflared you name with the stored token"
+                    if (quick) "Starting a temporary public URL" else "Runs the tunnel with the stored token"
                 } else {
                     "Off. The site stays local."
                 },
                 enabled = !locked
             )
-            OutlinedTextField(
-                value = path,
-                onValueChange = { value ->
-                    path = value.filter { it != '\n' }
-                        .take(TunnelConfig.MAX_EXECUTABLE_PATH_LENGTH)
-                    settings.executablePath = path
+            SwitchRow(
+                checked = useBundled && bundledAvailable,
+                onCheckedChange = {
+                    useBundled = it
+                    settings.useBundled = it
                 },
-                label = { Text("cloudflared executable") },
-                supportingText = {
-                    Text("/data/local/tmp/cloudflared")
+                title = "Use built-in cloudflared",
+                summary = if (bundledAvailable) {
+                    "Included with the app. No path, ADB or chmod needed."
+                } else {
+                    "Not available for this device; choose a custom binary."
                 },
-                singleLine = true,
-                enabled = !locked,
-                modifier = Modifier.fillMaxWidth()
+                enabled = !locked && bundledAvailable
             )
+            if (!useBundled || !bundledAvailable) {
+                OutlinedTextField(
+                    value = path,
+                    onValueChange = { value ->
+                        path = value.filter { it != '\n' }
+                            .take(TunnelConfig.MAX_EXECUTABLE_PATH_LENGTH)
+                        settings.executablePath = path
+                    },
+                    label = { Text("cloudflared executable") },
+                    supportingText = {
+                        Text("/data/local/tmp/cloudflared")
+                    },
+                    singleLine = true,
+                    enabled = !locked,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                SupportingText(
+                    "Built-in cloudflared ${BundledCloudflared.VERSION}. " +
+                        "The token is the only setup step."
+                )
+            }
             FieldLabel("Protocol")
             ChipRow {
                 TunnelConfig.ALLOWED_PROTOCOLS.forEach { option ->
@@ -212,45 +294,53 @@ fun TunnelScreen(
             }
         }
 
-        item { Band() }
+        if (!quick) {
+            item { Band() }
 
-        pageSection {
-            SectionHeader(title = "Token")
-            OutlinedTextField(
-                value = tokenText,
-                onValueChange = { value ->
-                    tokenText = value
-                        .filter { it.code in 0x20..0x7e }
-                        .take(TunnelConfig.MAX_TOKEN_LENGTH)
-                },
-                label = { Text("Tunnel token") },
-                visualTransformation = PasswordVisualTransformation(),
-                supportingText = {
-                    Text(if (tokenStored) "A token is stored encrypted" else "No token stored yet")
-                },
-                singleLine = true,
-                enabled = !locked,
-                modifier = Modifier.fillMaxWidth()
-            )
-            ButtonRow {
-                SecondaryButton(
-                    onClick = { saveToken() },
-                    enabled = !locked && tokenText.isNotBlank()
-                ) {
-                    Text("Save token", style = MaterialTheme.typography.labelLarge)
-                }
-                SecondaryButton(
-                    onClick = {
-                        settings.clearToken()
-                        tokenStored = false
-                        tokenText = ""
-                        preview = ""
-                        notice = "Stored token removed"
-                        noticeIsError = false
+            pageSection {
+                SectionHeader(title = "Token")
+                OutlinedTextField(
+                    value = tokenText,
+                    onValueChange = { value ->
+                        tokenText = value
+                            .filter { it.code in 0x20..0x7e }
+                            .take(TunnelConfig.MAX_TOKEN_LENGTH)
                     },
-                    enabled = !locked && tokenStored
-                ) {
-                    Text("Clear", style = MaterialTheme.typography.labelLarge)
+                    label = { Text("Tunnel token") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    supportingText = {
+                        Text(
+                            if (tokenStored) {
+                                "A token is stored encrypted. Paste the token or the full Cloudflare command."
+                            } else {
+                                "Token starts with eyJ; the Tunnel ID is not the token."
+                            }
+                        )
+                    },
+                    singleLine = true,
+                    enabled = !locked,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                ButtonRow {
+                    SecondaryButton(
+                        onClick = { saveToken() },
+                        enabled = !locked && tokenText.isNotBlank()
+                    ) {
+                        Text("Save token", style = MaterialTheme.typography.labelLarge)
+                    }
+                    SecondaryButton(
+                        onClick = {
+                            settings.clearToken()
+                            tokenStored = false
+                            tokenText = ""
+                            preview = ""
+                            notice = "Stored token removed"
+                            noticeIsError = false
+                        },
+                        enabled = !locked && tokenStored
+                    ) {
+                        Text("Clear", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
             }
         }
@@ -282,7 +372,30 @@ fun TunnelScreen(
 
         pageSection {
             SectionHeader(title = "Status")
-            if (status.detail.isEmpty() && status.diagnostic.isEmpty()) {
+            if (status.url.isNotEmpty()) {
+                LabeledValue(
+                    label = "Public URL",
+                    value = status.url,
+                    monospace = true
+                )
+                ButtonRow {
+                    SecondaryButton(
+                        onClick = {
+                            clipboard.setText(AnnotatedString(status.url))
+                            copiedUrl = true
+                        }
+                    ) {
+                        Text(
+                            if (copiedUrl) "Copied" else "Copy URL",
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                }
+                SupportingText(
+                    "Temporary link. It stops working when the tunnel stops."
+                )
+            }
+            if (status.url.isEmpty() && status.detail.isEmpty() && status.diagnostic.isEmpty()) {
                 SupportingText("Nothing reported yet.")
             } else {
                 if (status.detail.isNotEmpty()) {
@@ -294,6 +407,19 @@ fun TunnelScreen(
                         value = status.diagnostic,
                         monospace = true
                     )
+                    ButtonRow {
+                        SecondaryButton(
+                            onClick = {
+                                clipboard.setText(AnnotatedString(status.diagnostic))
+                                copiedDiagnostic = true
+                            }
+                        ) {
+                            Text(
+                                if (copiedDiagnostic) "Copied" else "Copy diagnostic",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -327,12 +453,19 @@ fun TunnelScreen(
 
         pageSection {
             SectionHeader(title = "Before you turn this on")
+            if (quick) {
+                SupportingText(
+                    text = "The quick URL publishes only the site port. Anyone with the link can open " +
+                        "the site until you press Stop."
+                )
+            } else {
+                SupportingText(
+                    text = "Map only the site's port in Cloudflare — the AI API is on another port " +
+                        "and should stay off it."
+                )
+            }
             SupportingText(
-                text = "Map only the site's port in Cloudflare — the AI API is on another port " +
-                    "and should stay off it."
-            )
-            SupportingText(
-                text = "No tunnel binary is bundled; the app runs the one you name."
+                text = "The built-in cloudflared is used unless you turn it off and name your own executable."
             )
         }
     }
@@ -354,7 +487,8 @@ private fun TunnelHero(
     phase: TunnelPhase,
     path: String,
     protocol: String,
-    tokenStored: Boolean
+    tokenStored: Boolean,
+    quick: Boolean
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.Gap)) {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -398,7 +532,11 @@ private fun TunnelHero(
                 }
             )
             Text(
-                text = "protocol ${protocol} · ${if (tokenStored) "token stored" else "no token stored"}",
+                text = "protocol $protocol · " + when {
+                    quick -> "quick tunnel, no token"
+                    tokenStored -> "token stored"
+                    else -> "no token stored"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

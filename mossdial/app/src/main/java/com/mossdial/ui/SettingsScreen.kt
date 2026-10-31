@@ -27,6 +27,7 @@ import com.mossdial.aiapi.AiApiStatus
 import com.mossdial.data.AiApiSettings
 import com.mossdial.data.TunnelSettings
 import com.mossdial.data.WebRoot
+import com.mossdial.tunnel.BundledCloudflared
 import com.mossdial.tunnel.TunnelManager
 import com.mossdial.tunnel.TunnelPhase
 import com.mossdial.tunnel.TunnelStatus
@@ -125,7 +126,11 @@ fun SettingsScreen(
             ) {
                 LabeledValue(
                     label = "Binary",
-                    value = tunnelSettings.executablePath.ifBlank { "Not set" },
+                    value = if (tunnelSettings.useBundled && BundledCloudflared.isAvailable(context)) {
+                        "Built-in ${BundledCloudflared.VERSION}"
+                    } else {
+                        tunnelSettings.executablePath.ifBlank { "Not set" }
+                    },
                     monospace = true,
                     modifier = Modifier.weight(1f)
                 )

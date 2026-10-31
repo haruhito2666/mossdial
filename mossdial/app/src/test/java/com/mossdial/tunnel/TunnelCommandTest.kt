@@ -64,6 +64,25 @@ class TunnelCommandTest {
     }
 
     @Test
+    fun buildsAQuickTunnelForTheLocalSitePort() {
+        val command = TunnelCommand.command(TunnelConfig.quick(EXECUTABLE, 8080))
+
+        assertEquals(
+            listOf(
+                EXECUTABLE,
+                "tunnel",
+                "--no-autoupdate",
+                "--url",
+                "http://127.0.0.1:8080",
+                "--protocol",
+                TunnelConfig.PROTOCOL_HTTP2
+            ),
+            command
+        )
+        assertFalse(command.contains("--token"))
+    }
+
+    @Test
     fun describeRedactsTheTokenButKeepsTheShape() {
         val described = TunnelCommand.describe(TunnelConfig(EXECUTABLE, TOKEN))
 

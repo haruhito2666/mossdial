@@ -11,7 +11,9 @@ enum class TunnelPhase {
 data class TunnelStatus(
     val phase: TunnelPhase,
     val detail: String = "",
-    val diagnostic: String = ""
+    val diagnostic: String = "",
+    /** The generated public URL, when the tunnel is a quick tunnel. */
+    val url: String = ""
 ) {
     val isActive: Boolean
         get() = phase == TunnelPhase.Starting || phase == TunnelPhase.Running
@@ -38,8 +40,8 @@ data class TunnelStatus(
  * The phase itself stays generic; [TunnelStatus.detail] is a fixed sentence per transition.
  */
 object TunnelStatusCapture {
-    const val MAX_CAPTURED_CHARS = 200
-    const val MAX_KEPT_CHARS = 2 * MAX_CAPTURED_CHARS
+    const val MAX_CAPTURED_CHARS = 2_000
+    const val MAX_KEPT_CHARS = 6_000
     const val MAX_LINE_CHARS = 8192
     const val REDACTED = "***"
     const val CLIP_MARKER = "…"
@@ -95,4 +97,14 @@ object TunnelStatusCapture {
     }
 
     private val WHITESPACE_RUN = Regex("\\s+")
+}
+
+/** Finds the temporary URL a quick tunnel prints when it connects. */
+object TunnelUrl {
+    private val QUICK = Regex(
+        """https://[a-z0-9-]+\.trycloudflare\.com""",
+        RegexOption.IGNORE_CASE
+    )
+
+    fun find(text: String): String? = QUICK.find(text)?.value
 }

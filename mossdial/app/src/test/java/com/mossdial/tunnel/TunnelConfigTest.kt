@@ -38,8 +38,7 @@ class TunnelConfigTest {
             "/data/local/tmp/`id`",
             "/data/local/tmp/cloudflared\u0000",
             "/data/local/tmp/../tmp/cloudflared/../../cloudflared\u0000",
-            "/data/local/tmp/c*",
-            "/data/local/tmp/clo~udflared"
+            "/data/local/tmp/c*"
         )
 
         rejected.forEach { path ->
@@ -88,6 +87,36 @@ class TunnelConfigTest {
     }
 
     @Test
+    fun rejectsATunnelIdWhereATokenBelongs() {
+        val id = "9037c7c6-5d35-4ab3-8233-e5e9a40083e0"
+
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            TunnelConfig(EXECUTABLE, id)
+        }
+
+        assertTrue(error.message.orEmpty().contains("Tunnel ID"))
+    }
+
+    @Test
+    fun buildsAQuickTunnelWithoutAToken() {
+        val config = TunnelConfig.quick(EXECUTABLE, 8080)
+
+        assertTrue(config.quick)
+        assertEquals("", config.token)
+        assertEquals(8080, config.port)
+    }
+
+    @Test
+    fun rejectsAnUnusableQuickTunnelPort() {
+        assertThrows(IllegalArgumentException::class.java) {
+            TunnelConfig.quick(EXECUTABLE, 80)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            TunnelConfig.quick(EXECUTABLE, 70_000)
+        }
+    }
+
+    @Test
     fun rejectsUnknownProtocol() {
         assertThrows(IllegalArgumentException::class.java) {
             TunnelConfig(EXECUTABLE, TOKEN, "carrier-pigeon")
@@ -110,6 +139,13 @@ class TunnelConfigTest {
     @Test
     fun allowsJoinsAndDotsInPathSegments() {
         val path = "/data/local/tmp/my_tunnel-1.0+build/cloudflared"
+
+        assertEquals(path, TunnelConfig(path, TOKEN).executablePath)
+    }
+
+    @Test
+    fun allowsTheShapeOfAnAndroidNativeLibraryDirectory() {
+        val path = "/data/app/~~AbCd==/com.mossdial-XyZ==/lib/arm64/libcloudflared.so"
 
         assertEquals(path, TunnelConfig(path, TOKEN).executablePath)
     }

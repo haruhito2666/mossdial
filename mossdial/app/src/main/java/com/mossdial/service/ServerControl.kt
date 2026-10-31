@@ -45,6 +45,25 @@ object ServerControl {
         return accepted
     }
 
+    /**
+     * Rebuilds a running listener with the currently stored settings.
+     *
+     * Used when the hosted folder or site type changes: the files are already on disk, but the
+     * listener is still serving the old root until it is rebuilt. If the service was not running,
+     * this starts it, which is the same user-visible result as pressing Start.
+     */
+    fun restart(context: Context, settings: ServerSettings = ServerSettings(context)): Boolean {
+        val accepted = submit(
+            context,
+            Intent(context, ServerService::class.java).setAction(ServerService.ACTION_RESTART),
+            "The system refused to restart the server"
+        )
+        if (accepted) {
+            settings.desiredRunning = true
+        }
+        return accepted
+    }
+
     private fun submit(context: Context, intent: Intent, message: String): Boolean = try {
         ContextCompat.startForegroundService(context, intent)
         true

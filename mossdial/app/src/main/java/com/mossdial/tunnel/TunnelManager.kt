@@ -28,6 +28,7 @@ object TunnelManager {
     private const val TAG = "MossdialTunnel"
     private const val STOP_GRACE_MILLIS = 2_000L
     private const val READ_BUFFER_CHARS = 1024
+    private const val READER_DRAIN_MILLIS = 1_000L
 
     /** How many times an unexpected exit is retried before the failure is final. */
     private const val MAX_AUTO_RESTARTS = 2
@@ -52,6 +53,7 @@ object TunnelManager {
     private var launchSerial = 0L
     private var token: String = ""
     private var outputTail: String = ""
+    private var lastUrl: String = ""
     private var stopRequested = false
 
     @Volatile
@@ -95,6 +97,7 @@ object TunnelManager {
             autoRestarts = 0
             token = config.token
             outputTail = ""
+            lastUrl = ""
             stopRequested = false
             launchPending = true
             launchSerial += 1
@@ -116,6 +119,7 @@ object TunnelManager {
             autoRestartTask?.cancel(false)
             autoRestartTask = null
             running = process
+            lastUrl = ""
             if (running == null) {
                 token = ""
                 outputTail = ""
@@ -152,6 +156,17 @@ object TunnelManager {
         }
         val builder = ProcessBuilder(TunnelCommand.command(config))
         builder.redirectErrorStream(false)
+        // A static Linux Go binary does not know Android's CA locations. Without this, the TLS
+        // handshake to Cloudflare can fail with "certificate signed by unknown authority" even
+        // though the phone browser trusts the same certificate.
+        builder.environment().apply {
+            if (!containsKey("SSL_CERT_DIR")) {
+                put(
+                    "SSL_CERT_DIR",
+                    "/system/etc/security/cacerts:/apex/com.android.conscrypt/cacerts"
+                )
+            }
+        }
         val started = try {
             builder.start()
         } catch (error: IOException) {
@@ -172,7 +187,7 @@ object TunnelManager {
             } else {
                 process = started
                 launchPending = false
-                publish(TunnelStatus(TunnelPhase.Running, "Tunnel running"))
+                publish(TunnelStatus(TunnelPhase.Running, "Tunnel running", url = lastUrl))
                 true
             }
         }
@@ -180,11 +195,10 @@ object TunnelManager {
             runCatching { started.destroy() }
             return
         }
-        startReader(started.inputStream, "out")
-        startReader(started.errorStream, "err")
-        startWatcher(started)
+        val stdout = startReader(started.inputStream, "out")
+        val stderr = startReader(started.errorStream, "err")
+        startWatcher(started, listOf(stdout, stderr))
     }
-
     private fun isCurrentLaunch(serial: Long): Boolean = synchronized(lock) {
         launchSerial == serial && launchPending && !stopRequested
     }
@@ -203,12 +217,13 @@ object TunnelManager {
             process = null
             token = ""
             outputTail = ""
+            lastUrl = ""
             stopRequested = false
             publish(TunnelStatus.failed(detail))
         }
     }
 
-    private fun startReader(stream: InputStream, label: String) {
+    private fun startReader(stream: InputStream, label: String): Thread =
         Thread({
             val reader = InputStreamReader(stream, Charsets.UTF_8)
             val buffer = CharArray(READ_BUFFER_CHARS)
@@ -242,17 +257,23 @@ object TunnelManager {
             isDaemon = true
             start()
         }
-    }
 
     private fun emit(line: StringBuilder) {
         if (line.isEmpty()) return
         synchronized(lock) {
             val appended = TunnelStatusCapture.append(outputTail, line, listOf(token))
-            if (appended != null) outputTail = appended
+            if (appended != null) {
+                outputTail = appended
+                val url = TunnelUrl.find(appended)
+                if (url != null && url != lastUrl && status.isActive) {
+                    lastUrl = url
+                    publish(status.copy(url = url))
+                }
+            }
         }
     }
 
-    private fun startWatcher(target: Process) {
+    private fun startWatcher(target: Process, readers: List<Thread>) {
         Thread({
             val exited = try {
                 target.waitFor()
@@ -262,6 +283,12 @@ object TunnelManager {
                 false
             }
             if (!exited) return@Thread
+            // The process can exit before its last lines have been read from the pipes. Waiting
+            // for the readers is what makes the fatal error visible in the diagnostic instead of
+            // reporting only the lines that happened to arrive before the exit.
+            readers.forEach { reader ->
+                runCatching { reader.join(READER_DRAIN_MILLIS) }
+            }
             val owned = synchronized(lock) { process === target }
             if (!owned) return@Thread
             val code = try {
@@ -287,6 +314,9 @@ object TunnelManager {
             TunnelStatusCapture.line(outputTail, listOf(token))
         }
         Log.i(TAG, "Tunnel process ended, exit=$code")
+        if (diagnostic.isNotEmpty()) {
+            Log.w(TAG, "Tunnel diagnostic: $diagnostic")
+        }
         return TunnelStatus.failed(summary, diagnostic)
     }
 
@@ -305,6 +335,7 @@ object TunnelManager {
             launchPending = false
             token = ""
             outputTail = ""
+            lastUrl = ""
             stopRequested = false
             publish(final)
             return true

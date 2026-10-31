@@ -25,6 +25,12 @@ class GzipEncodingTest {
     }
 
     @Test
+    fun acceptsWasmAndSvgBecauseBothCompressWell() {
+        assertTrue(GzipEncoding.isEligible("application/wasm", 2_048, "gzip"))
+        assertTrue(GzipEncoding.isEligible("image/svg+xml", 2_048, "gzip"))
+    }
+
+    @Test
     fun honorsZeroQualityAndExplicitGzipChoice() {
         assertFalse(GzipEncoding.isEligible("text/css", 4_096, "gzip;q=0, *;q=1"))
         assertFalse(GzipEncoding.isEligible("text/css", 4_096, "*;q=0"))
