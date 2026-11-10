@@ -1,13 +1,14 @@
 package com.mossdial.service
 
+import android.app.ActivityManager
+import android.content.Context
 import com.mossdial.DeviceTestSupport
-import com.mossdial.aiapi.AiApiState
-import com.mossdial.aiapi.AiApiStatus
-import com.mossdial.data.AiApiSettings
 import com.mossdial.data.ServerSettings
 import com.mossdial.data.WebRoot
 import java.io.File
 import java.net.Socket
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,11 +21,11 @@ import org.junit.Test
  *
  * Every other test in this project constructs the class it is testing. This one cannot: the point
  * is that `ServerService` is started by the platform, posts a notification within the five second
- * window Android allows, opens the socket on its own thread, and brings the AI API up beside it.
+ * window Android allows, opens the socket on its own thread.
  * A JVM test covers `ServerState`, `ServerStatus` and `AutoStartPolicy` in isolation and none of
  * the rest, because none of it exists without a real service lifecycle.
  *
- * Both listeners bind loopback on ports the operating system handed out, so nothing here is
+ * The listener binds loopback on a port the operating system handed out, so nothing here is
  * published to a network.
  */
 class ServerServiceDeviceTest {
@@ -37,15 +38,12 @@ class ServerServiceDeviceTest {
         settings = ServerSettings(context)
         port = DeviceTestSupport.freePort()
         settings.port = port
-        ServerState.publish(ServerStatus.STOPPED)
-        ServerControl.stop(context)
+        stopAndWait()
     }
 
     @After
     fun stopTheServer() {
-        runCatching { ServerControl.stop(context) }
-        ServerState.publish(ServerStatus.STOPPED)
-        AiApiState.publish(AiApiStatus.STOPPED)
+        stopAndWait()
     }
 
     @Test
@@ -92,28 +90,6 @@ class ServerServiceDeviceTest {
         }
     }
 
-    /**
-     * The AI API comes up beside the file server, on its own port and behind its own token.
-     *
-     * This is the ordering the service documents: the site serves whether or not the model API
-     * could start, and the token is minted before the listener opens, so there is no window in
-     * which the API is up without a credential.
-     */
-    @Test
-    fun bringsTheLocalAiApiUpBesideTheSite() {
-        val api = AiApiSettings(context)
-        ServerControl.start(context, settings)
-        DeviceTestSupport.await(message = "the AI API to report itself running") {
-            AiApiState.snapshot().isRunning
-        }
-
-        val apiPort = api.port
-        assertTrue("a token must be minted before the listener opens", api.hasToken())
-        DeviceTestSupport.await(message = "the API to answer on $apiPort") {
-            statusOf("http://${DeviceTestSupport.LOOPBACK}:$apiPort/health") == 401
-        }
-    }
-
     @Test
     fun thePublishedStatusMatchesWhatWasAskedFor() {
         ServerControl.start(context, settings)
@@ -126,6 +102,28 @@ class ServerServiceDeviceTest {
         assertEquals(ServerPhase.Running, status.phase)
         assertEquals(port, status.port)
         assertFalse("loopback is the default and must stay so", status.allowLan)
+    }
+
+    /** Wait until Android has processed the stop, before a later test requests a start. */
+    @Suppress("DEPRECATION")
+    private fun stopAndWait() {
+        val stopped = CountDownLatch(1)
+        val listener: (ServerStatus) -> Unit = { status ->
+            if (status.phase == ServerPhase.Stopped) stopped.countDown()
+        }
+        ServerState.addListener(listener)
+        try {
+            assertTrue("the stop request must be accepted", ServerControl.stop(context))
+            assertTrue("the service must publish its stopped state", stopped.await(30, TimeUnit.SECONDS))
+            val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            DeviceTestSupport.await(timeoutMillis = 30_000L, message = "the service to finish stopping") {
+                activityManager.getRunningServices(Int.MAX_VALUE).none {
+                    it.service.className == ServerService::class.java.name
+                }
+            }
+        } finally {
+            ServerState.removeListener(listener)
+        }
     }
 
     /**

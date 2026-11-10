@@ -1,10 +1,5 @@
 package com.mossdial.server
 
-import com.mossdial.ai.ChatTurn
-import com.mossdial.aiapi.AiApiBackend
-import com.mossdial.aiapi.AiApiConfig
-import com.mossdial.aiapi.AiApiModel
-import com.mossdial.aiapi.AiApiServer
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -34,35 +29,6 @@ class LocalTlsIntegrationTest {
         } finally {
             server.close()
             root.deleteRecursively()
-        }
-    }
-
-    @Test
-    fun servesTheAiApiOverTls() {
-        val port = ServerSocket(0).use { it.localPort }
-        val token = "test-token-1234567890"
-        val server = AiApiServer(
-            config = AiApiConfig(port = port, bindAddress = "127.0.0.1", enableTls = true),
-            token = token,
-            backend = object : AiApiBackend {
-                override fun runtimeStatus(): String = "test runtime"
-                override fun activeModel(): String? = null
-                override fun activeEmbeddingModel(): String? = null
-                override fun models(): List<AiApiModel> = emptyList()
-                override fun generate(turns: List<ChatTurn>, maxTokens: Int, timeoutMillis: Long): String = ""
-                override fun embed(text: String, timeoutMillis: Long): FloatArray = FloatArray(0)
-            }
-        )
-        server.start()
-        try {
-            val response = tlsRequest(
-                port,
-                "GET /health HTTP/1.1\r\nHost: localhost\r\n" +
-                    "Authorization: Bearer $token\r\nConnection: close\r\n\r\n"
-            )
-            assertTrue(response, response.startsWith("HTTP/1.1 200 OK"))
-        } finally {
-            server.close()
         }
     }
 

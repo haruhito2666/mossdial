@@ -11,30 +11,36 @@ import androidx.activity.compose.setContent
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.Dns
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -43,58 +49,96 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.mossdial.data.OnboardingState
-import com.mossdial.ui.AiScreen
 import com.mossdial.ui.FileManagerScreen
 import com.mossdial.ui.OnboardingScreen
+import com.mossdial.ui.RentalsScreen
 import com.mossdial.ui.ServerScreen
+import com.mossdial.ui.NotificationsScreen
 import com.mossdial.ui.ServerSettingsScreen
 import com.mossdial.ui.SettingsScreen
 import com.mossdial.ui.TunnelScreen
 import com.mossdial.ui.theme.BarShape
 import com.mossdial.ui.theme.MossdialTheme
 import com.mossdial.ui.theme.Spacing
+import com.mossdial.service.NoticeKind
+import com.mossdial.service.NotificationCenter
+import com.mossdial.service.ServerNotifications
+import com.mossdial.service.ServerStatus
+import com.mossdial.service.ServerPhase
+import com.mossdial.service.ServerState
 import com.mossdial.tunnel.TunnelManager
+import com.mossdial.tunnel.TunnelPhase
 import com.mossdial.tunnel.TunnelStatus
 import com.mossdial.widget.ServerWidget
 
 /**
  * The five destinations.
  *
- * Modelled as data rather than as a `when` over five constants so the label, the icon and the order
- * cannot drift apart. The icon is a pair because a filled icon reads as selected and an outlined
- * one does not, which is the standard Material signal and needs no colour to carry it.
+ * Modelled as data rather than as a `when` over separate constants so the label, the icon and the order
+ * cannot drift apart. Each destination shows its label, and the black tile carries selection.
  */
-private enum class Destination(
+internal enum class Destination(
     val label: String,
-    val selectedIcon: ImageVector,
-    val unselectedIcon: ImageVector
+    val icon: ImageVector
 ) {
-    Server("Server", Icons.Filled.Dns, Icons.Outlined.Dns),
-    Files("Files", Icons.Filled.Folder, Icons.Outlined.Folder),
-    Tunnel("Tunnel", Icons.Filled.Cloud, Icons.Outlined.Cloud),
-    Ai("AI", Icons.Filled.AutoAwesome, Icons.Filled.AutoAwesome),
-    Settings("Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
+    Server("Server", Icons.Filled.Dns),
+    Files("Files", Icons.Filled.Folder),
+    Tunnel("Tunnel", Icons.Filled.Cloud),
+    Rentals("Rentals", Icons.Filled.PhoneAndroid),
+    Settings("Settings", Icons.Filled.Settings)
 }
 
+/** Restores the old numeric tab selection and saves a stable name from now on. */
+internal val DestinationSaver = Saver<Destination, Any>(
+    save = { it.name },
+    restore = { saved ->
+        when (saved) {
+            is String -> Destination.entries.firstOrNull { it.name == saved } ?: Destination.Server
+            // Both previous layouts used 0–2 for these tabs; 3 or 4 can be Settings.
+            is Int -> when (saved) {
+                0 -> Destination.Server
+                1 -> Destination.Files
+                2 -> Destination.Tunnel
+                3, 4 -> Destination.Settings
+                else -> Destination.Server
+            }
+            else -> Destination.Server
+        }
+    }
+)
+
 /**
- * The height of the navigation bar's box: room for the 26dp icon in its pill, its 13sp label, and
- * the 48dp the thumb needs, with the box's own breathing around them.
+ * The navigation bar fits a visible label under each icon and keeps a generous touch target.
  */
-private val NavBarHeight = 76.dp
+private val NavBarHeight = 72.dp
+
+/** The widest the floating pill grows; on a phone it uses the full gutter-to-gutter width. */
+private val NavBarMaxWidth = 380.dp
+
+/** How far the content dissolves into the background above the navigation pill. */
+private val BottomFadeHeight = NavBarHeight + Spacing.Snug
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -139,59 +183,117 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        var selected by rememberSaveable { mutableIntStateOf(0) }
-        val destination = Destination.entries[selected]
-        // The server's settings are a page of their own, opened from the server tab or from the
-        // settings tab. It is an overlay over the tabs rather than a sixth destination: switching
+        var destination by rememberSaveable(stateSaver = DestinationSaver) {
+            mutableStateOf(Destination.Server)
+        }
+        // The server's settings are a page of their own, opened from the server tab.
+        // It is an overlay over the tabs rather than another destination: switching
         // tabs closes it, and the page itself owns the Back handling that closes it.
         var serverSettingsOpen by rememberSaveable { mutableStateOf(false) }
+        var notificationsOpen by rememberSaveable { mutableStateOf(false) }
+        // Content now draws to the very top of the window so a scrim can fade it under the status
+        // bar. The screens receive the status-bar height as their own top content padding, which
+        // keeps the first row below the bar while still letting scrolled content pass beneath it.
+        val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
         DisposableEffect(Unit) {
-            val listener: (TunnelStatus) -> Unit = { ServerWidget.refresh(context) }
-            TunnelManager.addListener(listener)
-            onDispose { TunnelManager.removeListener(listener) }
+            val serverListener: (ServerStatus) -> Unit = { status ->
+                ServerWidget.refresh(context)
+                NotificationCenter.post(
+                    kind = NoticeKind.Server,
+                    title = when (status.phase) {
+                        ServerPhase.Running -> "Server is running"
+                        ServerPhase.Starting -> "Server is starting"
+                        ServerPhase.Failed -> "Server failed to start"
+                        ServerPhase.Stopped -> "Server stopped"
+                    },
+                    body = ServerNotifications.text(context, status)
+                )
+            }
+            val tunnelListener: (TunnelStatus) -> Unit = { status ->
+                val title = when (status.phase) {
+                    TunnelPhase.Running -> "Tunnel is connected"
+                    TunnelPhase.Starting -> "Tunnel is starting"
+                    TunnelPhase.Failed -> "Tunnel failed"
+                    TunnelPhase.Stopped -> "Tunnel stopped"
+                }
+                val body = buildString {
+                    append(status.detail.ifBlank { "No extra detail." })
+                    if (status.url.isNotBlank()) {
+                        append(" Public URL: ")
+                        append(status.url)
+                    }
+                }
+                NotificationCenter.post(kind = NoticeKind.Tunnel, title = title, body = body)
+            }
+            ServerState.addListener(serverListener)
+            TunnelManager.addListener(tunnelListener)
+            onDispose {
+                ServerState.removeListener(serverListener)
+                TunnelManager.removeListener(tunnelListener)
+            }
         }
 
+        Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             containerColor = MaterialTheme.colorScheme.background,
+            // The screen owns the status-bar inset through its content padding; if Scaffold also
+            // applied it here, the fade would start below the bar and there would be nothing for it
+            // to fade. The bottom bar still reports its own height so the content stops above it.
+            contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
             // The bar draws its own background, so it handles the bottom inset itself and only the
-            // content is padded away from the status bar and the top of the bar.
+            // content is padded away from the top of the bar.
             bottomBar = {
-                // A floating rectangle box, not a full-width strip: rounded like the cards it sits
-                // above, inset from the screen edges, and lifted clear of the gesture area by its
-                // own padding rather than the Scaffold's.
-                Box(
+                // A floating pill, not a full-width strip: softly rounded, inset from the screen
+                // edges and centred when the window is wider than a phone. It deliberately has no
+                // shadow; the pale green surface and the space around it are the separation.
+                BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(start = Spacing.Inset, end = Spacing.Inset, bottom = Spacing.Tight)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                        .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
+                        .padding(
+                            start = Spacing.Inset,
+                            end = Spacing.Inset,
+                            bottom = Spacing.Snug
+                        ),
+                    contentAlignment = Alignment.Center
                 ) {
+                    // At larger font scales, show the selected label and give it more width. Every
+                    // tab retains its spoken label even when there is not room to show every tab.
+                    val compact = minOf(maxWidth, NavBarMaxWidth).value /
+                        LocalDensity.current.fontScale < 300f
                     Surface(
+                        modifier = Modifier
+                            .widthIn(max = NavBarMaxWidth)
+                            .fillMaxWidth(),
                         shape = BarShape,
-                        color = MaterialTheme.colorScheme.surface,
-                        // Deliberately flat: the bar is separated by the space around it and by
-                        // its own icons, not by a shadow or an outline.
+                        color = MaterialTheme.colorScheme.primaryContainer,
                         shadowElevation = 0.dp
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(NavBarHeight)
-                                .padding(horizontal = Spacing.Snug, vertical = Spacing.Tight)
+                                .selectableGroup()
+                                .padding(horizontal = Spacing.Tight, vertical = Spacing.Snug),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Each destination owns an equal fifth of the bar and centres itself
-                            // in it, so the five are neither bunched at the start nor drifting
-                            // apart by their differences in width.
-                            Destination.entries.forEachIndexed { index, item ->
+                            // Every destination owns an equal share of the bar, so the icon and
+                            // label stay in place when selection changes.
+                            Destination.entries.forEach { item ->
                                 DestinationItem(
                                     destination = item,
-                                    selected = index == selected,
+                                    selected = item == destination,
                                     onClick = {
-                                        selected = index
+                                        destination = item
                                         serverSettingsOpen = false
                                     },
-                                    modifier = Modifier.weight(1f)
+                                    showLabel = !compact || item == destination,
+                                    modifier = Modifier.weight(
+                                        if (!compact) 1f else if (item == destination) 1.5f else 0.875f
+                                    )
                                 )
                             }
                         }
@@ -199,40 +301,88 @@ class MainActivity : ComponentActivity() {
                 }
             }
         ) { innerPadding ->
-            // The Scaffold's insets are applied to the viewport, not to the scrolling content: a
-            // lazy list's contentPadding only makes room at the ends of its scroll range, so items
-            // passing through the middle of the screen would draw under the status bar and behind
-            // the floating bar — and, through the bar's own bottom margin, in the gesture strip
-            // below it. Padding the box clips the page cleanly above the bar instead.
+            // The Scaffold's bottom inset is applied to the viewport, not to the scrolling content.
+            // The top inset is deliberately absent: the screens add [statusBarTop] to their own
+            // content padding, which allows items to scroll under the top fade.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
-                // The screens no longer need the window insets themselves; the box has taken them.
-                val pageInsets = PaddingValues(0.dp)
-                if (serverSettingsOpen) {
-                    ServerSettingsScreen(
-                        contentPadding = pageInsets,
-                        onBack = { serverSettingsOpen = false }
-                    )
-                } else {
-                    when (destination) {
-                        Destination.Server -> ServerScreen(
+                // The screens no longer need the window insets themselves; the box has taken the
+                // bottom one and passes the top one through this padding value. The extra bottom
+                // space lets the final row scroll clear of the fade rather than staying washed out
+                // at the end of the list.
+                val pageInsets = PaddingValues(
+                    top = statusBarTop,
+                    bottom = BottomFadeHeight + Spacing.BottomBreathing
+                )
+                when (destination) {
+                    Destination.Server -> ServerScreen(
                             contentPadding = pageInsets,
-                            onOpenSettings = { serverSettingsOpen = true }
+                            onOpenSettings = { serverSettingsOpen = true },
+                            onOpenNotifications = { notificationsOpen = true }
                         )
-                        Destination.Files -> FileManagerScreen(contentPadding = pageInsets)
-                        Destination.Tunnel -> TunnelScreen(contentPadding = pageInsets)
-                        Destination.Ai -> AiScreen(contentPadding = pageInsets)
-                        Destination.Settings -> SettingsScreen(
+                    Destination.Files -> FileManagerScreen(contentPadding = pageInsets)
+                    Destination.Tunnel -> TunnelScreen(contentPadding = pageInsets)
+                    Destination.Rentals -> RentalsScreen(contentPadding = pageInsets)
+                    Destination.Settings -> SettingsScreen(
                             contentPadding = pageInsets,
-                            onOpenTunnel = { selected = Destination.entries.indexOf(Destination.Tunnel) },
-                            onOpenAi = { selected = Destination.entries.indexOf(Destination.Ai) }
+                            onOpenTunnel = { destination = Destination.Tunnel }
                         )
-                    }
                 }
+                // The top and bottom scrims are the iOS-style edge treatment from the reference:
+                // content dissolves into the background as it leaves the viewport. The top one
+                // also covers the status-bar strip, which is why the screens start below it but
+                // may scroll through it.
+                EdgeFade(
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    height = statusBarTop + Spacing.Section,
+                    fromTop = true
+                )
+                EdgeFade(
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    height = BottomFadeHeight,
+                    fromTop = false
+                )
             }
+        }
+
+        // The server's settings are a full-screen page, not a tab: it covers the navigation bar so
+        // nothing from the tab it was opened from shows through, and its own Back handler closes it.
+        if (serverSettingsOpen) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+            ) {
+                ServerSettingsScreen(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        top = statusBarTop,
+                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    ),
+                    onBack = { serverSettingsOpen = false }
+                )
+            }
+        }
+
+        if (notificationsOpen) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+            ) {
+                NotificationsScreen(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        top = statusBarTop,
+                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    ),
+                    onBack = { notificationsOpen = false }
+                )
+            }
+        }
         }
     }
 
@@ -243,61 +393,91 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * One destination inside the navigation bar: the icon inside its indicator pill, the label under
- * it, and the whole column as the tap target.
- *
- * The pill occupies its space whether or not the tab is selected — transparent when it is not — so
- * the icon never jumps when its destination comes on, and all five labels sit on the same line.
- * The selected tab is black on the light green pill, which is the palette's own pair; the others
- * are their grey. There is deliberately no ripple: the selection state is itself the feedback, and
- * a splash under the thumb said nothing the new tab colour didn't.
+ * One destination in the navigation bar. A visible label makes every tab discoverable; selection
+ * changes only the surface and tint, so the icons and labels stay in place between tabs.
  */
 @Composable
 private fun DestinationItem(
     destination: Destination,
     selected: Boolean,
     onClick: () -> Unit,
+    showLabel: Boolean,
     modifier: Modifier = Modifier
 ) {
     val tint = if (selected) {
-        MaterialTheme.colorScheme.onSurface
+        MaterialTheme.colorScheme.surface
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Column(
+    Box(
         modifier = modifier
-            .clip(MaterialTheme.shapes.small)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
+            .clip(RoundedCornerShape(12.dp))
+            .semantics(mergeDescendants = true) { contentDescription = destination.label }
+            .selectable(
+                selected = selected,
+                role = Role.Tab,
                 onClick = onClick
-            )
-            .padding(vertical = Spacing.Tight),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Spacing.Tight)
+            ),
+        contentAlignment = Alignment.Center
     ) {
         Surface(
-            shape = RoundedCornerShape(percent = 50),
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(12.dp),
             color = if (selected) {
-                MaterialTheme.colorScheme.primary
+                MaterialTheme.colorScheme.onSurface
             } else {
                 Color.Transparent
             }
         ) {
-            Icon(
-                imageVector = if (selected) destination.selectedIcon else destination.unselectedIcon,
-                contentDescription = destination.label,
-                tint = tint,
-                modifier = Modifier
-                    .padding(horizontal = 16.dp, vertical = 5.dp)
-                    .size(26.dp)
-            )
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = destination.icon,
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.size(20.dp)
+                )
+                if (showLabel) {
+                    Text(
+                        text = destination.label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = tint,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clearAndSetSemantics {}
+                    )
+                }
+            }
         }
-        Text(
-            text = destination.label,
-            style = MaterialTheme.typography.labelSmall,
-            color = tint,
-            maxLines = 1
-        )
     }
+}
+
+/**
+ * A vertical fade from the page background into transparency, or the reverse.
+ *
+ * It sits above the scrolling content but has no pointer input, so it fades what passes underneath
+ * without taking a tap. The status-bar-height top inset is included in [height] by the caller; the
+ * screens start their content below that inset and can scroll through it.
+ */
+@Composable
+private fun EdgeFade(
+    modifier: Modifier = Modifier,
+    height: Dp,
+    fromTop: Boolean
+) {
+    val background = MaterialTheme.colorScheme.background
+    val colors = if (fromTop) {
+        listOf(background, background.copy(alpha = 0f))
+    } else {
+        listOf(background.copy(alpha = 0f), background)
+    }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .background(Brush.verticalGradient(colors))
+    )
 }

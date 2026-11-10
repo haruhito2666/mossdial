@@ -27,7 +27,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -36,17 +35,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import com.mossdial.ui.theme.ControlSmall
 import com.mossdial.ui.theme.LocalStatusColors
 import com.mossdial.ui.theme.Spacing
-import java.util.Locale
 
 /**
  * The pieces every screen is built from.
@@ -58,7 +49,7 @@ import java.util.Locale
  *
  * The page rhythm they serve is one column of inset sections separated by full-bleed tonal bands:
  * [Band] is the separator, [pageSection] is the section with its gutter and its vertical padding,
- * [SectionHeader] names it, and [PulseDot] is the living mark the status screens lead with.
+ * [SectionHeader] names it, and [StatusDot] is the mark the status screens lead with.
  */
 
 /**
@@ -111,22 +102,21 @@ fun LazyListScope.pageSection(
 }
 
 /**
- * The page's smallest heading: one quiet line, capitals set wide, that names the group under it.
- * The capitals are not emphasis — at this size, spaced capitals are simply easier to scan.
+ * The page's smallest heading: a quiet sentence-case label that names the group under it.
  */
 @Composable
 fun MicroLabelText(text: String, modifier: Modifier = Modifier) {
     Text(
-        text = text.uppercase(Locale.ROOT),
-        style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.sp),
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier
     )
 }
 
 /**
- * A section header: the micro-label and its one-line explanation, with room for a single trailing
- * control aligned to the label rather than floated against the middle of the paragraph.
+ * A section header and its one-line explanation, with room for one trailing control aligned to
+ * the heading rather than floated against the middle of the paragraph.
  */
 @Composable
 fun SectionHeader(
@@ -142,7 +132,11 @@ fun SectionHeader(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(Spacing.Tight)
         ) {
-            MicroLabelText(title)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
             if (subtitle != null) {
                 Text(
                     text = subtitle,
@@ -160,32 +154,17 @@ fun SectionHeader(
 }
 
 /**
- * The state of whatever the screen is about, as a twelve-point dot. Pulsing is life — running,
- * starting, connecting — and the states that will not change on their own hold still.
+ * A steady mark for the state named beside it. The word remains the primary status indicator.
  */
 @Composable
-fun PulseDot(
+fun StatusDot(
     color: Color,
-    pulsing: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val transition = rememberInfiniteTransition(label = "pulse")
-    val alpha by transition.animateFloat(
-        initialValue = 1f,
-        targetValue = 0.3f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 750, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseAlpha"
-    )
     Box(
         modifier = modifier
             .size(12.dp)
-            .background(
-                color = color.copy(alpha = if (pulsing) alpha else 1f),
-                shape = CircleShape
-            )
+            .background(color = color, shape = CircleShape)
     )
 }
 

@@ -1,36 +1,41 @@
 # Privacy Policy
 
-Mossdial is a local-first Android app. It does not require an account, it has no analytics, and it
-does not send application data to any server operated by this project. Nothing leaves the device
-unless you start a Cloudflare Tunnel yourself.
+Mossdial is a local-first Android app. It does not require an account, has no built-in site analytics
+or project telemetry, and does not send application data to a server operated by this project.
+Hosting can send content to clients you allow; optional GitHub imports and Cloudflare tunnels contact
+the services you choose, as described below.
 
 ## Data stored on the device
 
-All of it is app-private. The app sets `allowBackup="false"` and declares explicit data-extraction
-rules, so none of it is included in a cloud backup or a device-to-device transfer.
+Persisted app data is app-private. The app sets `allowBackup="false"` and declares explicit
+data-extraction rules, so app data is not included in a cloud backup or device-to-device transfer.
+Android may also retain temporary screen state as described below.
 
 - **Server settings** in app-private preferences: port, LAN access, HTTPS, start-after-reboot, the
-  request-log preference and its size, and the AI API port and LAN access.
+  request-log preference and its size.
 - **Hosted website files** in the app-private web root. This is the one part you create yourself, by
   importing files or writing them in the app.
 - **Request logs, only if you turn them on.** They are held in memory, are never written to disk, and
   hold the method, path, status and size of the most recent requests up to the limit you chose. With
   the setting off — the default — no request path is recorded anywhere, logcat included. The
   aggregate counters shown as Traffic (request count, bytes sent, status totals) record no path and
-  are always kept.
-- **Model weights and vocabularies** in the app-private `noBackupFilesDir/models` directory. See the
-  AI section below.
-- **Credentials, encrypted.** The Cloudflare tunnel token and the local AI API bearer token are sealed
-  with AES-GCM using keys held in the Android keystore, in separate slots under separate key aliases.
+  are kept in memory for the current run.
+- **Credentials, encrypted.** The Cloudflare tunnel token is sealed with AES-GCM using a key held
+  in the Android keystore.
 - **The HTTPS identity.** A private key created inside the platform keystore, which the app cannot
   read out of, and the public certificate signed by it, stored app-private so the same certificate is
   presented on every run.
 - **Onboarding state**, so the first-run walkthrough is not shown again.
+- **Rental preview inputs** include example CPU, memory, storage and price values and charging/Wi-Fi
+  switches. They are temporary interface state; Android may retain them for screen-state restoration.
+  They do not change device settings, are not submitted or stored as a listing, and the preview makes
+  no marketplace network request.
 
 ## Network behavior
 
 The server binds to the device loopback interface by default. LAN access is disabled by default and
-must be explicitly enabled by the user, in the same way for the local AI API on its own port.
+must be explicitly enabled by the user. When you enable LAN hosting or a tunnel, served website
+files are sent to clients that request them.
 
 Cloudflare Tunnel is an optional remote-tunnel integration and is not required for local hosting. It
 runs only when you enable it. A named tunnel needs a tunnel token; a Quick test URL mode uses a
@@ -41,34 +46,30 @@ token is stored encrypted on the device and is never written to a log.
 A named tunnel is token-based: the app passes the token to `cloudflared tunnel run` and nothing else,
 so the public hostname and the local ports it reaches are configured in your own Cloudflare dashboard,
 not in the app. The app cannot enforce which of this device's ports that configuration exposes. Map
-only the web server's port in the tunnel's ingress configuration: if the AI API's port is mapped there
-too, the bearer token is the only thing protecting an endpoint that can make this device generate text
-and embed text. A Quick test URL publishes only the site port and stops working when the tunnel stops.
+only the web server's port in the tunnel's ingress configuration. A Quick test URL publishes the
+site port and stops working when the tunnel stops.
 
-Model downloads happen only when you ask for one, only over `https://`, only from the URL you supply,
-and only into the app-private model directory. No model catalog, telemetry endpoint, or analytics
-service is contacted at any point, including on first run.
+When you import a public GitHub repository, the app requests its archive from
+`codeload.github.com` over HTTPS. That service receives the network request needed to provide the
+files. No project telemetry endpoint or analytics service is contacted by the app.
 
-## AI models
+## Proposed phone rentals
 
-Model files, and the `vocab.txt` a text encoder needs, are imported from storage you choose or
-downloaded from a URL you supply, and are stored in the app-private `noBackupFilesDir/models`
-directory. That directory is a sibling of the web root, never inside it, so no model file can be
-served by the web host even if the web root is published.
+The Rentals tab is a preview. It does not create an account, list or rent a phone, process payments,
+connect to a customer or deploy a workload. The proposed marketplace would introduce new data and
+services; its privacy implications will be documented if and when they are implemented.
 
-Inference runs entirely on the device. Prompts, generated text, embeddings, and request logs never
-leave the device: the model is loaded into this process and there is no remote inference path in the
-app. With the request log off, nothing about which paths were requested is retained at all.
+## Data retained from earlier versions
 
-The local AI API is reachable from the network only when LAN access is explicitly enabled, and every
-route then requires the bearer token generated and stored on the device. It answers with the models
-the AI tab has loaded: a GGUF model for chat, the selected ONNX encoder for embeddings, and nothing
-else. It proxies nothing and calls out to nothing.
+Updating does not delete model files or vocabularies from earlier versions. They may remain in the
+app-private `noBackupFilesDir/models` directory, along with the old API settings and encrypted token
+and its Keystore key. The current version does not use them. Clearing app data or uninstalling removes
+app-private data, including hosted websites and settings; save anything you need first.
 
 ## Children
 
-The app collects nothing, so it is not directed at children and does not knowingly gather personal
-information from anyone.
+The app is not directed at children. The project does not knowingly gather personal information on
+its own servers; the local data and optional network features are described above.
 
 ## Changes
 

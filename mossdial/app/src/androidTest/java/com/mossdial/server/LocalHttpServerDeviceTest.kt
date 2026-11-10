@@ -6,6 +6,7 @@ import java.io.File
 import java.net.Socket
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -79,8 +80,8 @@ class LocalHttpServerDeviceTest {
             val headers = getHeaders("http://${DeviceTestSupport.LOOPBACK}:$port/")
 
             assertEquals("nosniff", headers["x-content-type-options"])
-            assertEquals("no-referrer", headers["referrer-policy"])
-            assertTrue(headers.containsKey("content-security-policy"))
+            assertNull(headers["referrer-policy"])
+            assertNull("the host must not impose a CSP on the site", headers["content-security-policy"])
         }
     }
 

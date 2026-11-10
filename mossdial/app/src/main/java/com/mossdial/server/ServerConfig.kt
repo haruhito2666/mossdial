@@ -13,6 +13,13 @@ data class ServerConfig(
     val maxRateLimitClients: Int = 512,
     val requestLogCapacity: Int = 256,
     /**
+     * Whether text and code responses may be offered gzip-compressed when a client asks for it.
+     *
+     * Compression trades CPU for bytes, which is usually the right trade on a phone. A user can
+     * turn it off in the settings screen to serve large static assets untouched.
+     */
+    val enableGzip: Boolean = true,
+    /**
      * How long a response write may make no progress before the socket is closed.
      *
      * Java has no write timeout, so a client that requests a large file and stops reading can

@@ -72,12 +72,13 @@ internal object DeviceTestSupport {
      * so the tests that need the real daemon gate on this instead. A device-only behaviour is
      * skipped rather than failed, because skipping is what tells the reader the gap is still open.
      *
-     * The emulator identifies itself through the fingerprint system properties; a real device has
-     * none of them.
+     * Common emulator fingerprints, models and hardware names are checked before running the
+     * hardware-only assertions.
      */
     fun assumeRealDevice() {
         val fingerprint = android.os.Build.FINGERPRINT.orEmpty()
         val model = android.os.Build.MODEL.orEmpty()
+        val hardware = android.os.Build.HARDWARE.orEmpty()
         assumeTrue(
             "Skipped on an emulator: the software keystore cannot complete a TLS handshake with a " +
                 "keystore key. Run this on real hardware to close the gap.",
@@ -86,7 +87,10 @@ internal object DeviceTestSupport {
                 !fingerprint.contains("emulator", ignoreCase = true) &&
                 !fingerprint.contains("genymotion", ignoreCase = true) &&
                 !model.contains("Emulator", ignoreCase = true) &&
-                !model.contains("Android SDK built for", ignoreCase = true)
+                !model.startsWith("sdk_gphone", ignoreCase = true) &&
+                !model.contains("Android SDK built for", ignoreCase = true) &&
+                !hardware.equals("ranchu", ignoreCase = true) &&
+                !hardware.equals("goldfish", ignoreCase = true)
         )
     }
 }

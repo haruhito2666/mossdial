@@ -24,11 +24,9 @@ val MossdialShapes = Shapes(
 val CardLarge = RoundedCornerShape(18.dp)
 
 /**
- * The floating navigation bar. Softer than the cards on purpose: nothing is nested inside it, it
- * is the one element the thumb moves between constantly, and a bar with card-sharp corners reads
- * as furniture rather than as a handle.
+ * The floating navigation bar uses a rounded outline distinct from its smaller tab indicators.
  */
-val BarShape = RoundedCornerShape(24.dp)
+val BarShape = RoundedCornerShape(32.dp)
 
 /** Buttons, text fields and anything a finger presses. */
 val Control = RoundedCornerShape(12.dp)

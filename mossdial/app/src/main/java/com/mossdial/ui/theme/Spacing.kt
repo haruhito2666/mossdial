@@ -53,7 +53,7 @@ object Spacing {
     val Spacious: Dp = 24.dp
 
     /** The height of the full-bleed separator between sections. */
-    val Band: Dp = 10.dp
+    val Band: Dp = 8.dp
 
     /** Space reserved below the last element so it clears the navigation bar. */
     val BottomBreathing: Dp = 32.dp

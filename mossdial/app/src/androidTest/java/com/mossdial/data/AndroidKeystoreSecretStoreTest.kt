@@ -11,7 +11,6 @@ import javax.crypto.SecretKeyFactory
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -24,7 +23,7 @@ import org.junit.Test
  * right place to test the format. It cannot test the thing the project actually depends on: that
  * `AndroidKeystoreKeyProvider` hands back a key it does not hold, that the key is stable across
  * calls, and that a ciphertext produced on this device cannot be opened by a key generated
- * anywhere else. Those are the properties that make the tunnel token and the AI API token
+ * anywhere else. Those are the properties that make the tunnel token
  * unreadable if the file is lifted off the device.
  */
 class AndroidKeystoreSecretStoreTest {
@@ -133,29 +132,6 @@ class AndroidKeystoreSecretStoreTest {
 
         assertNull("an envelope sealed by the keystore must not open with another key", wrong.read(SLOT))
         otherDirectory.deleteRecursively()
-    }
-
-    /**
-     * The tunnel token and the AI API token are separate secrets under separate aliases.
-     *
-     * `AiApiSettings` documents that the two credentials are deliberately sealed with different
-     * keys so lifting one out of its slot cannot yield the other. That is only true if the aliases
-     * really are different and really do resolve to different keys, which is a device question.
-     */
-    @Test
-    fun keepsTheApiTokenUnderItsOwnKeyAlias() {
-        assertNotEquals(
-            "the tunnel token's alias must not be reused for the API token",
-            AndroidKeystoreKeyProvider.DEFAULT_ALIAS,
-            AiApiSettings.KEY_ALIAS
-        )
-
-        val apiKey = AndroidKeystoreKeyProvider(AiApiSettings.KEY_ALIAS).key()
-
-        assertTrue(
-            "distinct aliases must resolve to distinct keystore keys",
-            apiKey != provider.key()
-        )
     }
 
     @Test

@@ -21,29 +21,19 @@ long-term-support branch.
 
 ## Scope
 
-Mossdial hosts a local web server, a local AI API, and an optional tunnel integration. In scope:
+Mossdial hosts a local web server and an optional tunnel integration. The Rentals tab is a UI-only
+preview and does not provide customer isolation, attestation, accounts, leases or payments. In scope:
 
-- Unauthenticated LAN exposure, or anything reachable from the network that the user did not intend
-  to be reachable.
-- Certificate or key disclosure, including the app's own TLS identity, the tunnel token, and the AI
-  API bearer token.
-- Path traversal, symlink escape, or any file reachable outside the intended roots from either the
-  web server or the model directory.
-- Anything that lets a request escape its bounds: unbounded headers, bodies, queues, model
-  downloads, tokenizer input, or vocabulary files.
-- Credential handling in the local AI API, including the constant-time comparison, the request
-  bounds, and the separation between the API token and the tunnel token.
-- The tunnel is token-based, so the ports a tunnel exposes are configured in Cloudflare rather than in
-  this app. A report that the app should prevent a user from publishing the AI API port through their
-  own tunnel configuration is not a vulnerability, but a way of surfacing that guidance more loudly is
-  welcome.
-- Supply-chain issues in the two third-party runtimes, or in the vendored llama.cpp sources.
-- Anything that reaches the native code through JNI in a release build, since the shrinker keeps for
-  both runtimes live in this repository.
+- Unintended network exposure and access outside the configured web root.
+- Disclosure of the TLS identity or tunnel token.
+- Path traversal, symlink escapes and requests that exceed configured bounds.
+- Tunnel process handling, credential storage and dependency supply-chain issues.
 
-Out of scope: vulnerabilities in llama.cpp or ONNX Runtime that require the user to supply a
-maliciously crafted model and that do not cross a Mossdial boundary, and issues that need a
-rooted device or a modified system image.
+Named tunnel ingress is configured in Cloudflare, so review its hostname and origin settings. For
+current local hosting, issues requiring a rooted device or modified system image are outside the
+current scope. The proposed private-rental threat model separately considers a device owner with
+physical possession and potential control of Android; it remains unverified and cannot be inferred
+from the preview. See `mossdial/PLAN-PHONE-RENTAL-CLOUD.md`.
 
 ## Safe disclosure
 

@@ -71,6 +71,27 @@ class LocalHttpServerRenderingTest {
         }
     }
 
+    @Test
+    fun `gzip can be turned off for large static assets`() {
+        val root = Files.createTempDirectory("mossdial-nogzip").toFile()
+        write(root, "index.html", "<div id=app></div>")
+        write(root, "module.wasm", "\u0000asm".repeat(600))
+        val port = freePort()
+        val server = LocalHttpServer(
+            ServerConfig(port = port, bindAddress = LOOPBACK, enableGzip = false),
+            root
+        )
+        try {
+            server.start()
+            val response = request(port, "/module.wasm", extraHeaders = "Accept-Encoding: gzip\r\n")
+            assertEquals(200, response.status)
+            assertNull("a user who turned compression off gets the file as it is", response.headers["content-encoding"])
+        } finally {
+            server.stop()
+            root.deleteRecursively()
+        }
+    }
+
     private fun write(root: File, path: String, content: String) {
         val file = File(root, path)
         file.parentFile?.mkdirs()

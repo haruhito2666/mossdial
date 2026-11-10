@@ -1,5 +1,6 @@
 package com.mossdial.ui
 
+import android.app.ActivityManager
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -10,13 +11,8 @@ import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -30,6 +26,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,10 +38,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -55,9 +57,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -71,6 +75,7 @@ import com.mossdial.service.ServerControl
 import com.mossdial.service.ServerPhase
 import com.mossdial.service.ServerState
 import com.mossdial.service.ServerStatus
+import com.mossdial.service.NotificationCenter
 import com.mossdial.service.TrafficState
 import com.mossdial.ui.components.Band
 import com.mossdial.ui.components.ButtonContent
@@ -79,7 +84,7 @@ import com.mossdial.ui.components.DonutChart
 import com.mossdial.ui.components.DonutSegment
 import com.mossdial.ui.components.LabeledValue
 import com.mossdial.ui.components.MicroLabelText
-import com.mossdial.ui.components.PulseDot
+import com.mossdial.ui.components.StatusDot
 import com.mossdial.ui.components.MiniAreaChart
 import com.mossdial.ui.components.NavigationRow
 import com.mossdial.ui.components.PrimaryButton
@@ -90,9 +95,13 @@ import com.mossdial.ui.components.SupportingText
 import com.mossdial.ui.theme.Control
 import com.mossdial.ui.theme.GreenLight
 import com.mossdial.ui.theme.Spacing
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import kotlinx.coroutines.delay
 
 /** How many remembered requests the page shows; the log itself can hold more. */
@@ -106,13 +115,14 @@ private const val RECENT_REQUESTS_SHOWN = 8
  * hairlines rather than boxed by cards: what the server is and where it answers, the one action the
  * moment calls for, a strip of live counters, the facts the address is built from, and then what
  * the server has actually done. Every number on it moves: counters tick to their new values, the
- * phase word and the action crossfade, and the dot announces life by breathing.
+ * phase word and the action crossfade, and the dot marks the current state.
  */
 @Composable
 fun ServerScreen(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenNotifications: () -> Unit
 ) {
     val context = LocalContext.current
     val settings = remember { ServerSettings(context) }
@@ -130,6 +140,10 @@ fun ServerScreen(
     val live = remember { ServerLiveState() }
     val resumed = rememberIsResumed()
     val handler = remember { Handler(Looper.getMainLooper()) }
+    // One worker is enough: a latency connect is a few hundred microseconds, and a queue of more
+    // than one pending probe would mean the page had stalled, not that it needed more workers.
+    val probe = remember { LatencyProbe(Executors.newSingleThreadExecutor()) }
+    var unreadCount by remember { mutableStateOf(NotificationCenter.unreadCount()) }
 
     DisposableEffect(resumed) {
         if (!resumed) {
@@ -139,6 +153,7 @@ fun ServerScreen(
             status = ServerState.snapshot()
             live.traffic = TrafficState.snapshot()
             live.samples = TrafficState.samples()
+            live.ramPercent = deviceRamUsagePercent(context)
             val poll = object : Runnable {
                 override fun run() {
                     status = ServerState.snapshot()
@@ -147,13 +162,33 @@ fun ServerScreen(
                     if (status.isActive) {
                         live.traffic = TrafficState.snapshot()
                         live.samples = TrafficState.samples()
+                        val probeHost = if (status.allowLan) {
+                            LanAddress.siteLocalIPv4() ?: ServerSettingsRules.LOOPBACK_ADDRESS
+                        } else {
+                            ServerSettingsRules.LOOPBACK_ADDRESS
+                        }
+                        probe.measure(probeHost, status.port) { millis ->
+                            handler.post { live.latencyMillis = millis }
+                        }
+                    } else {
+                        live.latencyMillis = null
                     }
+                    live.ramPercent = deviceRamUsagePercent(context)
                     handler.postDelayed(this, 1_000)
                 }
             }
             handler.post(poll)
-            onDispose { handler.removeCallbacksAndMessages(null) }
+            onDispose {
+                handler.removeCallbacksAndMessages(null)
+                probe.shutdown()
+            }
         }
+    }
+
+    DisposableEffect(Unit) {
+        val listener: () -> Unit = { handler.post { unreadCount = NotificationCenter.unreadCount() } }
+        NotificationCenter.addListener(listener)
+        onDispose { NotificationCenter.removeListener(listener) }
     }
 
     val running = status.phase == ServerPhase.Running
@@ -193,7 +228,11 @@ fun ServerScreen(
                 } else {
                     "This device only"
                 },
-                detail = if (running) "" else status.detail
+                detail = if (running) "" else status.detail,
+                ramPercent = live.ramPercent,
+                latencyMillis = live.latencyMillis,
+                hasUnread = unreadCount > 0,
+                onOpenNotifications = onOpenNotifications
             )
             ActionButton(
                 status = status,
@@ -272,14 +311,11 @@ private fun phaseLabel(phase: ServerPhase): String = when (phase) {
 }
 
 /**
- * The top of the page: the breathing dot and the phase word, the address itself, and one line
+ * The top of the page: the status dot and the phase word, the address itself, and one line
  * under it.
  *
- * The address is the reason most people come here, so the whole line is the copy target — tap it
- * and it is on the clipboard, and the line under it becomes the confirmation before reverting to
- * what the address means. No icon announces the affordance: the one line the page exists to hand
- * over is worth teaching once, and a copy button beside every address is the kind of furniture
- * this page is trying not to have.
+ * The address is the copy target. Its supporting text names the reachable audience and the copy
+ * action, then briefly confirms when the address reaches the clipboard.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -287,7 +323,11 @@ private fun StatusHeader(
     phase: ServerPhase,
     address: String,
     reachText: String,
-    detail: String
+    detail: String,
+    ramPercent: Int?,
+    latencyMillis: Long?,
+    hasUnread: Boolean,
+    onOpenNotifications: () -> Unit
 ) {
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
@@ -299,31 +339,63 @@ private fun StatusHeader(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.Gap)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.Base)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.spacedBy(Spacing.Snug)
         ) {
-            PulseDot(
-            color = when (phase) {
-                ServerPhase.Running -> MaterialTheme.colorScheme.primary
-                ServerPhase.Starting -> MaterialTheme.colorScheme.onSurfaceVariant
-                ServerPhase.Stopped -> MaterialTheme.colorScheme.onSurfaceVariant
-                ServerPhase.Failed -> MaterialTheme.colorScheme.onSurface
-            },
-            pulsing = phase == ServerPhase.Running || phase == ServerPhase.Starting
-        )
-            AnimatedContent(
-                targetState = phaseLabel(phase),
-                transitionSpec = {
-                    (fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 2 }) togetherWith
-                        (fadeOut(tween(150)) + slideOutVertically(tween(150)) { -it / 2 })
-                },
-                label = "phase"
-            ) { word ->
-                Text(
-                    text = word,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface
+            Row(
+                modifier = Modifier.align(Alignment.CenterVertically),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.Base)
+            ) {
+                StatusDot(
+                    color = when (phase) {
+                        ServerPhase.Running -> MaterialTheme.colorScheme.primary
+                        ServerPhase.Starting -> MaterialTheme.colorScheme.onSurfaceVariant
+                        ServerPhase.Stopped -> MaterialTheme.colorScheme.onSurfaceVariant
+                        ServerPhase.Failed -> MaterialTheme.colorScheme.onSurface
+                    }
+                )
+                AnimatedContent(
+                    targetState = phaseLabel(phase),
+                    transitionSpec = {
+                        (fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 2 }) togetherWith
+                            (fadeOut(tween(150)) + slideOutVertically(tween(150)) { -it / 2 })
+                    },
+                    label = "phase"
+                ) { word ->
+                    Text(
+                        text = word,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+
+            // The two live facts worth knowing before the address: how much of the phone the
+            // server is working inside, and how long the listener takes to answer. They sit at the
+            // far edge of the row so the phase word stays the page's anchor.
+            Row(
+                modifier = Modifier.align(Alignment.CenterVertically),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                StatusPill(
+                    icon = Icons.Filled.Memory,
+                    text = ramPercent?.let { "$it%" } ?: "—",
+                    contentDescription = "RAM usage"
+                )
+                Spacer(modifier = Modifier.width(Spacing.Snug))
+                StatusPill(
+                    icon = Icons.Filled.Speed,
+                    text = latencyMillis?.let { "$it ms" } ?: "—",
+                    contentDescription = "Server latency"
+                )
+                Spacer(modifier = Modifier.width(Spacing.Snug))
+                NotificationBell(
+                    hasUnread = hasUnread,
+                    onClick = onOpenNotifications
                 )
             }
         }
@@ -335,7 +407,7 @@ private fun StatusHeader(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(color = MaterialTheme.colorScheme.surfaceVariant, shape = Control)
-                .combinedClickable {
+                .combinedClickable(onClickLabel = "Copy address", role = Role.Button) {
                     clipboard.setText(AnnotatedString(address))
                     copied = true
                 }
@@ -354,7 +426,7 @@ private fun StatusHeader(
                 label = "copied"
             ) { isCopied ->
                 Text(
-                    text = if (isCopied) "Copied to the clipboard" else reachText,
+                    text = if (isCopied) "Copied to the clipboard" else "$reachText · Tap to copy",
                     style = MaterialTheme.typography.bodySmall,
                     color = if (isCopied) {
                         MaterialTheme.colorScheme.primary
@@ -369,6 +441,75 @@ private fun StatusHeader(
                 text = detail,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+/**
+ * One small live fact at the top of the page: a light-grey pill with an icon and a number.
+ *
+ * The pill is deliberately quiet — the same surface as the quiet parts of the page — because it is
+ * an ambient read-out, not an action. The number updates every second, so it has to be small enough
+ * to change without moving anything around it.
+ */
+@Composable
+private fun StatusPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    contentDescription: String
+) {
+    Row(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(color = MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.Tight)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(16.dp)
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+/**
+ * The bell that opens the notification page.
+ *
+ * It sits beside the latency pill rather than above the page because it is the same kind of
+ * read-out: a quiet circle the eye reaches after the facts. The small dot is the only colour on it,
+ * and it means "something new since you last looked", nothing more.
+ */
+@Composable
+private fun NotificationBell(
+    hasUnread: Boolean,
+    onClick: () -> Unit
+) {
+    Box(contentAlignment = Alignment.Center) {
+        IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
+            Icon(
+                imageVector = Icons.Default.Notifications,
+                contentDescription = "Notifications",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        if (hasUnread) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
             )
         }
     }
@@ -392,13 +533,13 @@ private fun ActionButton(
     ) { phase ->
         when (phase) {
             ServerPhase.Running -> SecondaryButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
-                ButtonContent(Icons.Default.Stop, "Stop")
+                ButtonContent(Icons.Default.Stop, "Stop server")
             }
             ServerPhase.Starting -> SecondaryButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
                 ButtonContent(Icons.Default.PlayArrow, "Starting")
             }
             else -> PrimaryButton(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
-                ButtonContent(Icons.Default.PlayArrow, "Start")
+                ButtonContent(Icons.Default.PlayArrow, "Start server")
             }
         }
     }
@@ -801,6 +942,49 @@ private fun RequestsSection(
 private class ServerLiveState {
     var traffic by mutableStateOf(TrafficState.snapshot())
     var samples by mutableStateOf(TrafficState.samples())
+    /** The device's used-RAM percentage, or null before the first read. */
+    var ramPercent by mutableStateOf<Int?>(null)
+    /** The last measured round-trip to the server's port, or null when it is not measurable. */
+    var latencyMillis by mutableStateOf<Long?>(null)
+}
+
+/**
+ * One live probe of the server's listener: how long a TCP connect to its port took.
+ *
+ * A connect is enough for a latency pill because it is the one thing a phone can measure about
+ * itself without a full HTTP round trip, and because it works the same way whether the listener is
+ * HTTP or the app's self-signed HTTPS. A failed connect leaves the last value in place rather than
+ * flashing the pill to zero.
+ */
+private class LatencyProbe(private val executor: ExecutorService) {
+    fun shutdown() {
+        executor.shutdownNow()
+    }
+
+    fun measure(host: String, port: Int, onResult: (Long) -> Unit) {
+        executor.execute {
+            val elapsed = try {
+                val start = System.nanoTime()
+                Socket().use { socket ->
+                    socket.connect(InetSocketAddress(host, port), 1_000)
+                }
+                (System.nanoTime() - start) / 1_000_000
+            } catch (_: Exception) {
+                -1L
+            }
+            if (elapsed >= 0) onResult(elapsed)
+        }
+    }
+}
+
+/** The share of the device's RAM that is in use, as a whole percentage from 0 to 100. */
+private fun deviceRamUsagePercent(context: Context): Int {
+    val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    val memory = ActivityManager.MemoryInfo()
+    activityManager.getMemoryInfo(memory)
+    if (memory.totalMem <= 0) return 0
+    val used = memory.totalMem - memory.availMem
+    return ((used * 100) / memory.totalMem).toInt().coerceIn(0, 100)
 }
 
 private fun needsNotificationPermission(context: Context): Boolean =

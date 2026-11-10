@@ -56,7 +56,7 @@ import com.mossdial.ui.components.FieldLabel
 import com.mossdial.ui.components.LabeledValue
 import com.mossdial.ui.components.Notice
 import com.mossdial.ui.components.PrimaryButton
-import com.mossdial.ui.components.PulseDot
+import com.mossdial.ui.components.StatusDot
 import com.mossdial.ui.components.SecondaryButton
 import com.mossdial.ui.components.SectionHeader
 import com.mossdial.ui.components.SupportingText
@@ -363,7 +363,7 @@ fun TunnelScreen(
                     // Stop is also the way to cancel the pause before an automatic reconnect.
                     enabled = locked || status.phase == TunnelPhase.Failed
                 ) {
-                    ButtonContent(Icons.Default.Stop, "Stop")
+                    ButtonContent(Icons.Default.Stop, "Stop tunnel")
                 }
             }
         }
@@ -460,8 +460,8 @@ fun TunnelScreen(
                 )
             } else {
                 SupportingText(
-                    text = "Map only the site's port in Cloudflare — the AI API is on another port " +
-                        "and should stay off it."
+                    text = "Configure the public hostname in Cloudflare to point to the site's local " +
+                        "address and port. Anyone with the hostname can open the site."
                 )
             }
             SupportingText(
@@ -492,14 +492,13 @@ private fun TunnelHero(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.Gap)) {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            PulseDot(
+            StatusDot(
                 color = when (phase) {
                     TunnelPhase.Running -> MaterialTheme.colorScheme.primary
                     TunnelPhase.Starting -> MaterialTheme.colorScheme.onSurfaceVariant
                     TunnelPhase.Failed -> MaterialTheme.colorScheme.onSurface
                     TunnelPhase.Stopped -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
-                pulsing = phase == TunnelPhase.Running || phase == TunnelPhase.Starting,
                 modifier = Modifier.padding(end = Spacing.Snug)
             )
             AnimatedContent(

@@ -9,15 +9,6 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import com.mossdial.ai.AiControllerRegistry
-import com.mossdial.aiapi.AiApiConfig
-import com.mossdial.aiapi.AiApiRequest
-import com.mossdial.aiapi.AiApiServer
-import com.mossdial.aiapi.AiApiState
-import com.mossdial.aiapi.AiApiStatus
-import com.mossdial.aiapi.AiApiToken
-import com.mossdial.aiapi.AiControllerApiBackend
-import com.mossdial.data.AiApiSettings
 import com.mossdial.data.ServerSettings
 import com.mossdial.data.ServerSettingsRules
 import com.mossdial.data.SiteInspector
@@ -37,7 +28,7 @@ class ServerService : Service() {
         const val EXTRA_ALLOW_LAN = "allow_lan"
         const val EXTRA_ENABLE_SSL = "enable_ssl"
 
-        private const val TAG = "MossdialAiApi"
+        private const val TAG = "MossdialServer"
         private const val TRAFFIC_PUBLISH_INTERVAL_MILLIS = 1_000L
 
         /**
@@ -63,7 +54,6 @@ class ServerService : Service() {
     private val lifecycle = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var server: LocalHttpServer? = null
-    private var aiApi: AiApiServer? = null
 
     /**
      * The start attempt that owns the fields above.
@@ -207,9 +197,16 @@ class ServerService : Service() {
                         enableTls = requested.enableTls,
                         enableLogging = requestLogging,
                         requestLogCapacity = settings.requestLogLines,
+                        enableGzip = settings.enableGzip,
+                        maxConnections = settings.maxConnections,
+                        workerThreads = settings.workerThreads,
+                        requestTimeoutMillis = settings.requestTimeoutMillis,
+                        writeTimeoutMillis = settings.writeTimeoutMillis,
+                        rateLimitRequests = settings.rateLimitRequests,
                         spaFallback = settings.siteKind.spaFallback,
                         siteBasePath = siteBasePath,
-                        backendPort = if (settings.backendEnabled) settings.backendPort else 0
+                        backendPort = if (settings.backendEnabled) settings.backendPort else 0,
+                        backendMaxBodyBytes = settings.backendMaxBodyBytes
                     ),
                     root = siteRoot,
                     // Logcat is a request log too: with logging off, a path must not end up there
@@ -252,7 +249,6 @@ class ServerService : Service() {
                 runCatching { instance.stop() }
                 return@Thread
             }
-            startAiApi(attemptId)
             watchTraffic(instance, attemptId)
         }, "MossdialServer").apply {
             isDaemon = true
@@ -277,7 +273,6 @@ class ServerService : Service() {
                     restartAfterListenerDied(instance, attempt)
                     return@Thread
                 }
-                restartAiApiIfDead()
                 TrafficState.publish(instance.statisticsSnapshot())
                 try {
                     Thread.sleep(TRAFFIC_PUBLISH_INTERVAL_MILLIS)
@@ -293,31 +288,6 @@ class ServerService : Service() {
             isDaemon = true
             start()
         }
-    }
-
-    /**
-     * Brings the local AI API back if its listener died while the file server kept serving.
-     *
-     * Only a listener that exists and has stopped is replaced, so a configuration failure (which
-     * publishes a failure and leaves nothing registered) is not retried once a second. The site
-     * stays up either way; this just restores the second socket.
-     */
-    private fun restartAiApiIfDead() {
-        val deadAndAttempt = synchronized(lifecycle) {
-            val current = aiApi
-            if (current == null || current.isServing) {
-                null
-            } else {
-                aiApi = null
-                runCatching { current.stop() }
-                current to attemptSerial
-            }
-        } ?: return
-        val (_, attempt) = deadAndAttempt
-        // A new file-server attempt may have taken over while the dead socket was being closed.
-        if (!isCurrentAttempt(attempt)) return
-        AiApiState.publish(AiApiStatus.STOPPED)
-        startAiApi(attempt)
     }
 
     /**
@@ -337,21 +307,17 @@ class ServerService : Service() {
             starting = false
             val serverToStop = server
             server = null
-            val aiToStop = aiApi
-            aiApi = null
             // Invalidate this attempt so a completion still in flight cannot adopt itself after
             // the retry has taken over.
             attemptSerial += 1
-            // Stop the old listeners while this attempt still owns the state, so a new start
-            // cannot try to bind the same ports before the old sockets are closed.
+            // Stop the old listener while this attempt still owns the state, so a new start
+            // cannot try to bind the same port before the socket is closed.
             runCatching { serverToStop?.stop() }
-            runCatching { aiToStop?.stop() }
             attemptSerial
         }
         // A user may have started the server again while the failed listener was being closed.
         // That new attempt owns the state now; this retry must not publish over it.
         if (!isCurrentAttempt(retrySerial)) return
-        AiApiState.publish(AiApiStatus.STOPPED)
         TrafficState.clear()
         val delayIndex = startAttempts.coerceIn(0, RETRY_DELAYS_MILLIS.lastIndex)
         val delay = RETRY_DELAYS_MILLIS[delayIndex]
@@ -391,94 +357,12 @@ class ServerService : Service() {
         scheduleRetry(nextAttempt, requested, "The listener stopped")
     }
 
-    /**
-     * Brings the local AI API up beside the file server.
-     *
-     * It is a second listener on its own port, started on its own thread and failing on its own: a
-     * model API that cannot bind, or a device whose Keystore refuses to open the token, leaves the
-     * site serving rather than taking the whole foreground service down with it. The token is
-     * minted on the first start, so there is no window in which the listener is up without one.
-     */
-    private fun startAiApi(attempt: Long) {
-        if (!isCurrentAttempt(attempt)) return
-        val settings = try {
-            AiApiSettings(this)
-        } catch (error: Throwable) {
-            Log.e(TAG, "AI API settings could not be opened", error)
-            publishAiFailure(attempt, "Secure storage is unavailable on this device")
-            return
-        }
-        val token = try {
-            settings.token()?.takeIf { AiApiToken.isValid(it) }
-                ?: AiApiToken.generate().also { settings.storeToken(it) }
-        } catch (error: Throwable) {
-            Log.e(TAG, "AI API token could not be read", error)
-            publishAiFailure(attempt, "The API token could not be stored securely")
-            return
-        }
-        val allowLan = settings.allowLan
-        val enableTls = settings.enableTls
-        val config = try {
-            AiApiConfig(
-                port = settings.port,
-                bindAddress = ServerSettingsRules.bindAddress(allowLan),
-                enableTls = enableTls
-            )
-        } catch (error: IllegalArgumentException) {
-            Log.e(TAG, "AI API configuration rejected", error)
-            publishAiFailure(attempt, error.message ?: "The API port is not usable")
-            return
-        }
-        val instance = try {
-            AiApiServer(
-                config = config,
-                token = token,
-                backend = AiControllerApiBackend(),
-                onRequest = { request -> Log.d(TAG, aiApiLogLine(request)) },
-                tlsIdentity = { TlsIdentity.forContext(applicationContext) }
-            ).apply { start() }
-        } catch (error: Throwable) {
-            Log.e(TAG, "AI API start failed", error)
-            publishAiFailure(attempt, error.message ?: "Unable to start the AI API on port ${config.port}")
-            return
-        }
-        val adopted = synchronized(lifecycle) {
-            // The same rule as the file server: a stop or a newer attempt that landed while this
-            // socket was opening takes priority, so the port is released instead of staying bound
-            // to nothing. Publishing under the same lock keeps a stale Running out of the state.
-            if (attemptSerial != attempt) {
-                runCatching { instance.stop() }
-                false
-            } else {
-                aiApi = instance
-                AiApiState.publish(AiApiStatus.running(config.port, allowLan, enableTls))
-                true
-            }
-        }
-        if (!adopted) {
-            return
-        }
-    }
-
-    /** Publishes an AI API failure only while the attempt that produced it still owns the state. */
-    private fun publishAiFailure(attempt: Long, message: String) {
-        synchronized(lifecycle) {
-            if (attemptSerial == attempt) {
-                AiApiState.publish(AiApiStatus.failed(message))
-            }
-        }
-    }
-
     private fun isCurrentAttempt(attempt: Long): Boolean = synchronized(lifecycle) {
         attemptSerial == attempt
     }
 
-    /** Method, path, status and duration only: never a header, a body or the token. */
-    private fun aiApiLogLine(request: AiApiRequest): String =
-        "${request.method} ${request.path} -> ${request.status} in ${request.millis}ms"
-
     /**
-     * Closes the current listeners and opens new ones with the stored settings, without leaving the
+     * Closes the current listener and opens a new one with the stored settings, without leaving the
      * foreground.
      *
      * This is the same serial dance as a stop followed by a start: the old attempt is invalidated
@@ -493,12 +377,8 @@ class ServerService : Service() {
             starting = false
             val serverToStop = server
             server = null
-            val aiToStop = aiApi
-            aiApi = null
             runCatching { serverToStop?.stop() }
-            runCatching { aiToStop?.stop() }
         }
-        AiApiState.publish(AiApiStatus.STOPPED)
         TrafficState.clear()
         publish(requested)
         startServer(requested)
@@ -515,17 +395,13 @@ class ServerService : Service() {
             starting = false
             val serverToStop = server
             server = null
-            val aiToStop = aiApi
-            aiApi = null
             runCatching { serverToStop?.stop() }
-            runCatching { aiToStop?.stop() }
         }
         if (publishStopped) {
             publish(ServerStatus.STOPPED)
         } else {
             runCatching { ServerWidget.refresh(this) }
         }
-        AiApiState.publish(AiApiStatus.STOPPED)
         TrafficState.clear()
         leaveForeground()
         stopSelf()
@@ -542,14 +418,10 @@ class ServerService : Service() {
             ServerSettings(this).desiredRunning = false
             val serverToStop = server
             server = null
-            val aiToStop = aiApi
-            aiApi = null
             runCatching { serverToStop?.stop() }
-            runCatching { aiToStop?.stop() }
         }
         mainHandler.removeCallbacksAndMessages(null)
         runningSinceMillis = 0L
-        AiApiState.publish(AiApiStatus.STOPPED)
         TrafficState.clear()
         val failed = ServerStatus.failed(detail)
         publish(failed)

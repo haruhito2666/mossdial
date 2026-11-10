@@ -46,8 +46,8 @@ private val PAGES = listOf(
     OnboardingPage(
         icon = Icons.Outlined.Dns,
         title = "Host a site from this phone",
-        body = "Mossdial serves a folder from this device. Start it, then open the address it " +
-            "shows in any browser on this network."
+        body = "Mossdial serves a folder from this device. Start the server, then open its " +
+            "address in a browser on this phone."
     ),
     OnboardingPage(
         icon = Icons.Outlined.Https,

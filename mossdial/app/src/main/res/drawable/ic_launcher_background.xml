@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    The icon background: a flat brand green with a darker band across the lower third, so the mark
-    reads as a device at both launcher sizes and does not depend on a gradient the launcher may
-    flatten.
+    The adaptive icon background is the same ink as the supplied logo art. The foreground is a
+    72dp circular crop of that art on a 108dp transparent canvas; the launcher's 72dp mask aligns
+    with the crop, so the source's straight left edge is tangent to the mask rather than visible
+    inside it. A flat colour also survives every launcher mask without a seam.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -10,9 +11,6 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#1F5C2E"
+        android:fillColor="#111311"
         android:pathData="M0,0h108v108h-108z" />
-    <path
-        android:fillColor="#2D7D3E"
-        android:pathData="M0,0h108v66h-108z" />
 </vector>

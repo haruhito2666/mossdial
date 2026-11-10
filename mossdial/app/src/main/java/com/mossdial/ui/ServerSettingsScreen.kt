@@ -8,11 +8,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,12 +33,14 @@ import androidx.compose.ui.unit.dp
 import com.mossdial.data.ServerSettings
 import com.mossdial.data.ServerSettingsRules
 import com.mossdial.server.LanAddress
+import com.mossdial.service.ServerControl
 import com.mossdial.service.ServerPhase
 import com.mossdial.service.ServerState
 import com.mossdial.service.ServerStatus
 import com.mossdial.ui.components.Band
 import com.mossdial.ui.components.BackendPortField
 import com.mossdial.ui.components.BasePathField
+import com.mossdial.ui.components.ButtonContent
 import com.mossdial.ui.components.ChoiceChip
 import com.mossdial.ui.components.ChipRow
 import com.mossdial.ui.components.FieldLabel
@@ -44,6 +48,7 @@ import com.mossdial.ui.components.HttpsSetting
 import com.mossdial.ui.components.LanAccessSetting
 import com.mossdial.ui.components.PortField
 import com.mossdial.ui.components.RequestLogSetting
+import com.mossdial.ui.components.SecondaryButton
 import com.mossdial.ui.components.SectionHeader
 import com.mossdial.ui.components.SupportingText
 import com.mossdial.ui.components.SwitchRow
@@ -80,6 +85,15 @@ fun ServerSettingsScreen(
     var logging by remember { mutableStateOf(settings.requestLogging) }
     var logLines by remember { mutableStateOf(settings.requestLogLines) }
     var backendEnabled by remember { mutableStateOf(settings.backendEnabled) }
+    var maxConnections by remember { mutableStateOf(settings.maxConnections) }
+    var workers by remember { mutableStateOf(settings.workerThreads) }
+    var requestTimeout by remember { mutableStateOf(settings.requestTimeoutMillis) }
+    var writeTimeout by remember { mutableStateOf(settings.writeTimeoutMillis) }
+    var rateLimit by remember { mutableStateOf(settings.rateLimitRequests) }
+    var gzip by remember { mutableStateOf(settings.enableGzip) }
+    var bodyLimitMb by remember {
+        mutableStateOf((settings.backendMaxBodyBytes / ServerSettingsRules.BYTES_PER_MEGABYTE).toInt())
+    }
 
     val handler = remember { Handler(Looper.getMainLooper()) }
     // The server publishes on every phase change and nowhere else, so a listener is exact where a
@@ -107,7 +121,7 @@ fun ServerSettingsScreen(
     val address = "${if (tls) "https" else "http"}://$host:$port"
 
     LazyColumn(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
             top = contentPadding.calculateTopPadding(),
             bottom = contentPadding.calculateBottomPadding() + Spacing.Snug
@@ -202,11 +216,109 @@ fun ServerSettingsScreen(
             )
             if (backendEnabled) {
                 BackendPortField(settings = settings)
+                FieldLabel("Upload limit")
+                ChipRow {
+                    ServerSettingsRules.BODY_LIMIT_CHOICES_MEGABYTES.forEach { choice ->
+                        ChoiceChip(
+                            label = "$choice MB",
+                            selected = bodyLimitMb == choice,
+                            onClick = {
+                                bodyLimitMb = choice
+                                settings.backendMaxBodyBytes = choice * ServerSettingsRules.BYTES_PER_MEGABYTE
+                            }
+                        )
+                    }
+                }
                 SupportingText(
                     text = "Start your runtime on this phone first. Mossdial forwards requests to " +
                         "127.0.0.1 and never starts or manages the process."
                 )
             }
+        }
+
+        item { Band() }
+
+        pageSection {
+            SectionHeader(title = "Performance")
+            FieldLabel("Connections kept open")
+            ChipRow {
+                ServerSettingsRules.CONNECTION_CHOICES.forEach { choice ->
+                    ChoiceChip(
+                        label = choice.toString(),
+                        selected = maxConnections == choice,
+                        onClick = {
+                            maxConnections = choice
+                            settings.maxConnections = choice
+                        }
+                    )
+                }
+            }
+            FieldLabel("Worker threads")
+            ChipRow {
+                ServerSettingsRules.WORKER_CHOICES.forEach { choice ->
+                    ChoiceChip(
+                        label = choice.toString(),
+                        selected = workers == choice,
+                        onClick = {
+                            workers = choice
+                            settings.workerThreads = choice
+                        }
+                    )
+                }
+            }
+            FieldLabel("Request timeout")
+            ChipRow {
+                ServerSettingsRules.TIMEOUT_CHOICES_MILLIS.forEach { choice ->
+                    ChoiceChip(
+                        label = "${choice / 1_000} s",
+                        selected = requestTimeout == choice,
+                        onClick = {
+                            requestTimeout = choice
+                            settings.requestTimeoutMillis = choice
+                        }
+                    )
+                }
+            }
+            FieldLabel("Write timeout")
+            ChipRow {
+                ServerSettingsRules.TIMEOUT_CHOICES_MILLIS.forEach { choice ->
+                    ChoiceChip(
+                        label = "${choice / 1_000} s",
+                        selected = writeTimeout == choice,
+                        onClick = {
+                            writeTimeout = choice
+                            settings.writeTimeoutMillis = choice
+                        }
+                    )
+                }
+            }
+            FieldLabel("Requests per client per minute")
+            ChipRow {
+                ServerSettingsRules.RATE_LIMIT_CHOICES.forEach { choice ->
+                    ChoiceChip(
+                        label = choice.toString(),
+                        selected = rateLimit == choice,
+                        onClick = {
+                            rateLimit = choice
+                            settings.rateLimitRequests = choice
+                        }
+                    )
+                }
+            }
+            SwitchRow(
+                checked = gzip,
+                onCheckedChange = {
+                    gzip = it
+                    settings.enableGzip = it
+                },
+                title = "Compress responses",
+                summary = if (gzip) {
+                    "Text, code and SVG up to 8 MB are offered gzip-compressed."
+                } else {
+                    "Files are served exactly as they are on disk."
+                }
+            )
+            SupportingText("Applies on the next start.")
         }
 
         item { Band() }
@@ -222,6 +334,14 @@ fun ServerSettingsScreen(
                 title = "Start after a restart",
                 summary = "Brings it back after a reboot; stopping it turns this off."
             )
+            if (running) {
+                SecondaryButton(
+                    onClick = { ServerControl.restart(context, settings) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    ButtonContent(Icons.Default.Refresh, "Restart to apply changes")
+                }
+            }
         }
 
         item { Band() }

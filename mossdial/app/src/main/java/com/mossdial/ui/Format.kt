@@ -10,8 +10,8 @@ import java.util.Locale
  * screen and a different size on another. There is now one definition and one unit system.
  *
  * Binary units are used because they are the ones the underlying counts are actually made of: the
- * server counts bytes it has written, and the model store reports the length of a file, so
- * dividing by 1024 is what produces an exact number rather than a rounded-looking one.
+ * server counts bytes it has written and the file manager reports file sizes. Dividing by 1024
+ * keeps those measurements consistent.
  */
 fun formatBytes(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"

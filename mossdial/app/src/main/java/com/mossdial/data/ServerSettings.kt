@@ -116,6 +116,85 @@ class ServerSettings(private val store: PreferenceStore) {
         get() = ServerSettingsRules.normalizePort(store.getInt(KEY_BACKEND_PORT, DEFAULT_BACKEND_PORT))
         set(value) = store.putInt(KEY_BACKEND_PORT, ServerSettingsRules.normalizePort(value))
 
+    /**
+     * How many client sockets may be queued before a new connection is refused.
+     *
+     * This is both the accept backlog and the executor queue, so it is also how many requests may
+     * wait for a worker. A small value keeps memory flat; a large one absorbs bursts on a busier
+     * phone.
+     */
+    var maxConnections: Int
+        get() = ServerSettingsRules.normalizeConnections(
+            store.getInt(KEY_MAX_CONNECTIONS, ServerSettingsRules.DEFAULT_CONNECTIONS)
+        )
+        set(value) = store.putInt(
+            KEY_MAX_CONNECTIONS,
+            ServerSettingsRules.normalizeConnections(value)
+        )
+
+    /** Threads the request executor runs on. More threads help with slow disks, not slow phones. */
+    var workerThreads: Int
+        get() = ServerSettingsRules.normalizeWorkers(
+            store.getInt(KEY_WORKER_THREADS, ServerSettingsRules.DEFAULT_WORKERS)
+        )
+        set(value) = store.putInt(KEY_WORKER_THREADS, ServerSettingsRules.normalizeWorkers(value))
+
+    /** How long reading one request may take before the socket is closed. */
+    var requestTimeoutMillis: Int
+        get() = ServerSettingsRules.normalizeTimeoutMillis(
+            store.getInt(KEY_REQUEST_TIMEOUT, ServerSettingsRules.DEFAULT_REQUEST_TIMEOUT_MILLIS)
+        )
+        set(value) = store.putInt(
+            KEY_REQUEST_TIMEOUT,
+            ServerSettingsRules.normalizeTimeoutMillis(value)
+        )
+
+    /** How long writing one response may make no progress before the socket is closed. */
+    var writeTimeoutMillis: Int
+        get() = ServerSettingsRules.normalizeTimeoutMillis(
+            store.getInt(KEY_WRITE_TIMEOUT, ServerSettingsRules.DEFAULT_WRITE_TIMEOUT_MILLIS)
+        )
+        set(value) = store.putInt(
+            KEY_WRITE_TIMEOUT,
+            ServerSettingsRules.normalizeTimeoutMillis(value)
+        )
+
+    /** Requests one client address may make inside the rate-limit window. */
+    var rateLimitRequests: Int
+        get() = ServerSettingsRules.normalizeRateLimit(
+            store.getInt(KEY_RATE_LIMIT, ServerSettingsRules.DEFAULT_RATE_LIMIT)
+        )
+        set(value) = store.putInt(
+            KEY_RATE_LIMIT,
+            ServerSettingsRules.normalizeRateLimit(value)
+        )
+
+    /**
+     * Whether text and code responses are offered gzip-compressed when a client asks for it.
+     *
+     * Compression trades CPU for bytes, which is usually the right trade on a phone serving a site
+     * over a phone network. A user hosting very large static assets on a slow device can turn it
+     * off and serve those files as they are.
+     */
+    var enableGzip: Boolean
+        get() = store.getBoolean(KEY_ENABLE_GZIP, true)
+        set(value) = store.putBoolean(KEY_ENABLE_GZIP, value)
+
+    /** The largest request body the backend proxy will relay, in bytes. */
+    var backendMaxBodyBytes: Long
+        get() = ServerSettingsRules.normalizeBodyLimitMegabytes(
+            store.getInt(
+                KEY_BACKEND_MAX_BODY_MB,
+                ServerSettingsRules.DEFAULT_BODY_LIMIT_MEGABYTES
+            ).toLong()
+        ) * ServerSettingsRules.BYTES_PER_MEGABYTE
+        set(value) = store.putInt(
+            KEY_BACKEND_MAX_BODY_MB,
+            ServerSettingsRules.normalizeBodyLimitMegabytes(
+                value / ServerSettingsRules.BYTES_PER_MEGABYTE
+            ).toInt()
+        )
+
     /** The address the server socket binds for the current LAN setting. */
     fun bindAddress(): String = ServerSettingsRules.bindAddress(allowLan)
 
@@ -133,6 +212,13 @@ class ServerSettings(private val store: PreferenceStore) {
         private const val KEY_SITE_BASE_PATH = "site_base_path"
         private const val KEY_BACKEND_ENABLED = "backend_enabled"
         private const val KEY_BACKEND_PORT = "backend_port"
+        private const val KEY_MAX_CONNECTIONS = "max_connections"
+        private const val KEY_WORKER_THREADS = "worker_threads"
+        private const val KEY_REQUEST_TIMEOUT = "request_timeout_millis"
+        private const val KEY_WRITE_TIMEOUT = "write_timeout_millis"
+        private const val KEY_RATE_LIMIT = "rate_limit_requests"
+        private const val KEY_ENABLE_GZIP = "enable_gzip"
+        private const val KEY_BACKEND_MAX_BODY_MB = "backend_max_body_megabytes"
 
         /** The port a Next.js dev server uses by default, because that is the common case. */
         const val DEFAULT_BACKEND_PORT = 3000

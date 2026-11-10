@@ -462,7 +462,8 @@ class LocalHttpServer(
         range: ByteRange?
     ): Long {
         val compressible = GzipEncoding.isCompressible(contentType)
-        val gzip = range == null && GzipEncoding.isEligible(contentType, resourceLength, acceptEncoding)
+        val gzip = range == null && config.enableGzip &&
+            GzipEncoding.isEligible(contentType, resourceLength, acceptEncoding)
         // One compression pass, used for both the length and the body. The old version compressed
         // the whole file once to count the bytes and a second time to send them, which doubled the
         // CPU per request and let a file change between the two passes.

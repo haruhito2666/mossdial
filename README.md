@@ -1,22 +1,32 @@
 # Mossdial
 
-Mossdial is a local-first Android web host. It serves a site you control from the phone over
-loopback by default, through an HTTP server written from scratch in Kotlin on platform sockets. It
-can add HTTPS with a certificate the app keeps, publish through a Cloudflare Tunnel, host a model on
-the device (GGUF chat through llama.cpp, ONNX text embeddings through the official ONNX Runtime), and
-expose that model through a token-protected local API that speaks the OpenAI chat and embeddings
-shapes.
+<p align="center">
+  <img src="mossdial/branding/mossdial-mark-512.png" width="112" alt="Mossdial logo">
+</p>
 
-There is no account, no server operated by this project, and no analytics.
+Mossdial is a local-first Android web host for publishing a website from your phone. It serves a
+site you control over loopback by default, through an HTTP server written from scratch in Kotlin on
+platform sockets, and can publish it through a Cloudflare Tunnel. It also supports local HTTPS.
+
+There is no account, no server operated by this project, and no built-in site analytics or project
+telemetry.
 
 The Android application and build system are in [`mossdial/`](./mossdial/). Its
 [README](./mossdial/README.md) is the real document: features, architecture, security defaults,
 project layout, and exactly what has and has not been verified.
 
+## Direction
+
+Mossdial currently hosts websites locally and through an optional tunnel. The new **Rentals** tab
+previews both sides of a proposed marketplace: renting an individual phone and offering a phone.
+Listings, rentals, deployment and payments are not implemented. Private rentals require
+security isolation and attestation to be proven on supported devices first. See the
+[phone-rental plan](./mossdial/PLAN-PHONE-RENTAL-CLOUD.md).
+
 ## Requirements
 
-JDK 17, Android SDK 35, NDK 27 and CMake 3.22.1. The NDK and CMake are needed because the llama.cpp
-runtime is compiled from vendored sources rather than shipped as a binary.
+JDK 17, Android SDK 35, NDK 27 and Go 1.27 or newer. Go and the NDK build the bundled
+Cloudflare tunnel engine.
 
 ## Build
 
@@ -31,11 +41,14 @@ The full check used before a release:
 cd mossdial
 ./gradlew :app:testReleaseUnitTest :app:assembleRelease \
   :app:lintRelease :app:lintVitalRelease
+# If Gradle skips vital lint in the combined invocation:
+./gradlew :app:lintVitalRelease
 ```
 
-As of now this passes: 423 JVM tests, the release assembly, and release lint. No feature has yet been
-exercised on a device or emulator — [RELEASING.md](./RELEASING.md) has the checklist that closes that
-gap.
+The latest release build and lint passed with 186 JVM tests. Emulator checks covered the rental
+preview and local HTTP hosting; two HTTPS instrumentation tests failed on an earlier debug build.
+Real-device testing remains outstanding. See the [app status](./mossdial/README.md#status) and
+[release checklist](./RELEASING.md) for details.
 
 ## Release signing
 
@@ -45,12 +58,19 @@ described in [RELEASING.md](./RELEASING.md), or place a keystore at the git-igno
 
 ## Contributing
 
-Mossdial is open source, but it is maintained as a pull-request-only repository: only the maintainer
-commits and pushes to `master`. Fork the repository, open a pull request, and let the maintainer
-review and merge it; direct write access is not granted.
+Mossdial is open source under Apache 2.0, but it does not accept external pull requests. Only the
+maintainer commits and pushes to `master`. The code is public for use, review and forking under the
+license; forks are independent and are not merged upstream.
 
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) first. Report suspected vulnerabilities according to
-[SECURITY.md](./SECURITY.md), and see [RELEASING.md](./RELEASING.md) for release steps.
+Read [CONTRIBUTING.md](./CONTRIBUTING.md) for the build and repository rules. Report suspected
+vulnerabilities according to [SECURITY.md](./SECURITY.md), and see [RELEASING.md](./RELEASING.md) for
+release steps.
+
+## Design credit
+
+The interface was polished using [Unslop](https://github.com/heydamir/unslop) by
+[Damir Sokolovsky (@heydamir)](https://x.com/heydamir), adapted for Android and Jetpack Compose.
+Unslop is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 ## License
 

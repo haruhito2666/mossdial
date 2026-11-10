@@ -348,10 +348,7 @@ fun FileManagerScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(
-                top = contentPadding.calculateTopPadding(),
-                bottom = contentPadding.calculateBottomPadding() + Spacing.Snug
-            )
+            .padding(top = contentPadding.calculateTopPadding())
     ) {
         PageSection(spacing = Spacing.Base) {
             Row(
@@ -481,7 +478,7 @@ fun FileManagerScreen(
                     enabled = !isBusy,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    ButtonContent(Icons.AutoMirrored.Filled.NoteAdd, "Text file")
+                    ButtonContent(Icons.AutoMirrored.Filled.NoteAdd, "New text file")
                 }
             }
             ButtonRow {
@@ -493,7 +490,7 @@ fun FileManagerScreen(
                     enabled = !isBusy,
                     modifier = Modifier.weight(1f)
                 ) {
-                    ButtonContent(Icons.Default.CreateNewFolder, "Folder")
+                    ButtonContent(Icons.Default.CreateNewFolder, "New folder")
                 }
                 SecondaryButton(
                     onClick = { openDocumentLauncher.launch(arrayOf("*/*")) },
@@ -513,7 +510,7 @@ fun FileManagerScreen(
                     enabled = !isBusy,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    ButtonContent(Icons.Default.CloudDownload, "GitHub site")
+                    ButtonContent(Icons.Default.CloudDownload, "Import from GitHub")
                 }
             }
 
@@ -558,7 +555,9 @@ fun FileManagerScreen(
                     start = Spacing.Inset,
                     end = Spacing.Inset,
                     top = Spacing.Snug,
-                    bottom = Spacing.Snug
+                    // The list reaches the top of the navigation pill; this padding is what lets
+                    // the last row scroll clear of the bottom fade instead of ending under it.
+                    bottom = contentPadding.calculateBottomPadding() + Spacing.Snug
                 )
             ) {
                 itemsIndexed(entries, key = { _, entry -> entry.relativePath }) { index, entry ->

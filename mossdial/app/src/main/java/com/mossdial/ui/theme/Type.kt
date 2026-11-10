@@ -10,10 +10,8 @@ import androidx.compose.ui.unit.sp
 /**
  * The type scale.
  *
- * Two rules hold the page together. Sizes climb in a small, regular ladder — 13, 15, 18, 21 — so a
- * section title, a row title and a caption are visibly different without any of them shouting.
- * Weights carry the hierarchy: prose is Normal, every title is SemiBold, and the label tier is set
- * at [LabelWeight] so a small line stays findable beside the value it describes.
+ * A small size ladder separates page titles, row titles and captions. Normal and Medium weights
+ * keep the hierarchy readable without making every label compete with the values around it.
  *
  * Nothing on a screen is smaller than 13sp. The floor used to be 12, which is legible in isolation
  * and faint on a phone held at arm's length; 13 is the smallest size that still reads as text.
@@ -28,13 +26,9 @@ private val TrimmedLineHeight = LineHeightStyle(
 )
 
 /**
- * The weight of the label tier: SemiBold.
- *
- * Small text at Normal weight looks faint next to its value, and at Bold it competes with the titles
- * above it. SemiBold is the one weight the system font is guaranteed to carry as a real face, so the
- * label tier resolves the same way on every device.
+ * Labels use the same medium weight as other short controls.
  */
-private val LabelWeight = FontWeight.SemiBold
+private val LabelWeight = FontWeight.Medium
 
 private fun style(
     size: Int,
@@ -52,24 +46,23 @@ private fun style(
 
 val MossdialTypography = Typography(
     // Screen titles. Large enough to anchor a page, tight enough to leave room for content.
-    headlineLarge = style(32, 38, FontWeight.Bold, (-0.4)),
-    headlineMedium = style(27, 33, FontWeight.Bold, (-0.3)),
-    headlineSmall = style(23, 29, FontWeight.SemiBold, (-0.2)),
+    headlineLarge = style(32, 40, FontWeight.Medium),
+    headlineMedium = style(28, 36, FontWeight.Medium),
+    headlineSmall = style(24, 32, FontWeight.Medium),
 
     // The phase word at the top of a status page, the address, and section-level headings.
-    titleLarge = style(21, 28, FontWeight.SemiBold),
-    titleMedium = style(18, 24, FontWeight.SemiBold, 0.1),
-    titleSmall = style(15, 21, FontWeight.SemiBold, 0.1),
+    titleLarge = style(21, 28, FontWeight.Medium),
+    titleMedium = style(18, 24, FontWeight.Medium),
+    titleSmall = style(15, 22, FontWeight.Medium),
 
-    // Prose. Body sizes are Normal so paragraphs recede; the small tier is Medium because at 13sp
-    // Normal reads as faint next to the values around it.
-    bodyLarge = style(17, 25),
+    // Prose stays regular weight, including the supporting text beside controls.
+    bodyLarge = style(16, 24),
     bodyMedium = style(15, 22),
-    bodySmall = style(13, 19, FontWeight.Medium),
+    bodySmall = style(13, 20),
 
     // Labels sit above controls and above values. [LabelWeight], because they are short and need
     // to be findable without competing with the value underneath them.
-    labelLarge = style(15, 20, LabelWeight, 0.1),
-    labelMedium = style(13, 18, LabelWeight, 0.4),
-    labelSmall = style(13, 18, LabelWeight, 0.3)
+    labelLarge = style(15, 20, LabelWeight),
+    labelMedium = style(13, 18, LabelWeight),
+    labelSmall = style(13, 18, LabelWeight)
 )

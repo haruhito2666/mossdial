@@ -1,37 +1,45 @@
 # Contributing to Mossdial
 
-Thank you for helping improve Mossdial.
+Mossdial is published as an open-source project, but it does **not** accept external pull requests.
+Only the maintainer commits and pushes to `master`. This document describes how the project is built
+and the rules the repository follows; it is not an invitation to send changes upstream. The Apache
+2.0 license permits forking, but forks are independent and are not reviewed or merged here.
 
 ## Development
 
-1. Install JDK 17, Android SDK 35, NDK 27 (`27.0.12077973`), CMake 3.22.1 and Go 1.27 or newer.
-   The NDK and CMake are not optional: the llama.cpp runtime is compiled from the vendored sources,
-   and the AI tab does not work without it. Go and the NDK also compile the bundled Cloudflare tunnel
-   engine with cgo, which is what gives it Android's DNS resolver. Targets are `arm64-v8a` and
-   `x86_64`.
+1. Install JDK 17, Android SDK 35, NDK 27 (`27.0.12077973`) and Go 1.27 or newer.
+   Go and the NDK compile the bundled Cloudflare tunnel engine with cgo, which supplies Android's
+   DNS resolver. Targets are `arm64-v8a` and `x86_64`.
 2. Run `./gradlew :app:assembleRelease` and `./gradlew :app:testReleaseUnitTest` from `mossdial/`.
-3. Before opening a pull request, run the full check:
+3. Before committing, run the full check:
 
    ```bash
    ./gradlew :app:testReleaseUnitTest :app:assembleRelease \
      :app:lintRelease :app:lintVitalRelease
    ```
 
-   The release variant is the only one built and tested: it minifies, and the two third-party
-   runtimes are kept alive by the app's own `app/proguard-rules.pro` rather than by rules in their
-   published artifacts. A stripped class only fails on a device, not in CI.
+   If Gradle skips vital lint in the combined invocation, run `./gradlew :app:lintVitalRelease`
+   separately. The release variant is minified; a successful build does not replace testing the
+   installed artifact on a device.
 
 Device tests live under `app/src/androidTest/` but are not part of the release-only check. A JVM test
 that can run without a device is always preferred; add to `app/src/test/java/com/mossdial/` and name
 the class after what it covers.
 
-## Pull requests
+## Rental preview and planned backend
 
-Mossdial is open source, but it is maintained as a pull-request-only repository. Only the maintainer
-commits and pushes to `master`; contributors should fork the repository, work on a branch in their
-fork, and open a pull request. Do not ask for direct write access, and do not push branches to this
-repository. The maintainer reviews every pull request, may request changes, and performs the final
-commit and merge. Opening a pull request does not guarantee that it will be merged.
+`app/src/main/java/com/mossdial/ui/RentalsScreen.kt` is an interactive preview, not a marketplace
+client. Example listings and workspace details are illustrative; offer fields and switches are
+screen state only. Keep rent, list, deployment and rental-management actions disabled until the
+corresponding systems exist and have been verified. Preserve local hosting without a marketplace
+account. `mossdial/PLAN-PHONE-RENTAL-CLOUD.md` records the proposed phases and the real-device
+isolation and attestation gate for private rentals.
+
+## Repository rules
+
+External pull requests are not accepted. Do not open one, do not ask for direct write access, and do
+not push branches to this repository. The maintainer is the only person who commits and pushes to
+`master`.
 
 - Keep changes focused and include tests for behavioural changes.
 - Do not commit models, vocabularies, APKs, keystores, generated build output, or local SDK
@@ -52,7 +60,7 @@ commit and merge. Opening a pull request does not guarantee that it will be merg
 
 Dependency verification is on: `mossdial/gradle/verification-metadata.xml` pins a checksum for every
 resolved artifact and Gradle fails on anything else. After changing a dependency, regenerate it and
-include the result in the same pull request:
+include the result in the same change:
 
 ```bash
 cd mossdial
@@ -65,18 +73,18 @@ or a substituted artifact, and both are worth stopping for.
 
 ## Runtime dependencies
 
-The project uses the official Android/Kotlin/Compose toolchain plus two third-party runtimes:
-llama.cpp, vendored from a pinned commit, and the `com.microsoft.onnxruntime:onnxruntime-android`
-AAR. Their versions, licences and provenance are tracked in `mossdial/LICENSES/THIRD_PARTY.md`. When
-either is updated, update that file, the pinned commit note, the licence notices and the shrinker
-rules in the same change, and apply upstream security fixes before release. No other third-party
-runtime may be added: this is a deliberate limit, not an oversight.
+The project uses the Android/Kotlin/Compose toolchain and the pinned Cloudflare `cloudflared`
+engine, compiled from source at build time. Track versions, licences and provenance in
+`mossdial/LICENSES/THIRD_PARTY.md` and update them with dependency changes.
 
 ## Internal documents
 
-`MOSSDIAL_PLAN.md` and `MOSSDIAL_ROADMAP.md` are internal working notes and are git-ignored. Do not
-rely on them for anything a contributor needs; the README is the document of record.
+`MOSSDIAL_PLAN.md`, `MOSSDIAL_ROADMAP.md` and `MOSSDIAL_FEATURES.md` are internal, git-ignored
+working notes. The plan is historical; the roadmap records the current priorities, and the feature
+notes explain the candidates. The phone-rental plan in `mossdial/PLAN-PHONE-RENTAL-CLOUD.md` records
+the proposed marketplace work. The app README is the document of record for current behaviour.
 
 ## License
 
-Contributions are licensed under Apache License 2.0 unless a file states otherwise.
+Mossdial is licensed under Apache License 2.0 unless a file states otherwise. Forking is permitted by
+that license, but no external contribution is accepted upstream.

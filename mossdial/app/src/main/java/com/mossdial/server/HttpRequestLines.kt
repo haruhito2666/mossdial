@@ -8,14 +8,7 @@ import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 
-/**
- * The one request-line reader both listeners use.
- *
- * A request header block is line oriented, so reading it safely is the same problem in the static
- * file server and in the AI API: never buffer more than [limit] bytes for a line, stop the moment
- * the peer stops sending, and decode strictly. Keeping that in one place is what lets
- * [com.mossdial.server.LocalHttpServer] and `AiApiServer` agree on what a malformed request is.
- */
+/** Reads HTTP request lines with bounded memory and strict decoding. */
 internal object HttpRequestLines {
 
     /**

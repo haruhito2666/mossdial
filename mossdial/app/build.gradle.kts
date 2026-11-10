@@ -219,31 +219,13 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // The AI runtimes are the reason for the ABI list: llama.cpp is compiled per ABI
-        // from src/main/cpp, and the ONNX Runtime AAR ships arm64-v8a, armeabi-v7a, x86
-        // and x86_64. Adding an ABI here also needs a matching check in the CMake build.
+        // The bundled cloudflared executable is built for these architectures.
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
-        }
-
-        externalNativeBuild {
-            cmake {
-                arguments += listOf(
-                    "-DANDROID_STL=c++_shared"
-                )
-                cppFlags += "-std=c++17"
-            }
         }
     }
 
     ndkVersion = androidNdkVersion
-
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
-    }
 
     buildTypes {
         release {
@@ -308,8 +290,7 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
         jniLibs {
-            // The ONNX Runtime AAR ships its .so files compressed, so they have to be
-            // extracted at install time instead of being mapped straight out of the APK.
+            // Extract cloudflared so Android can execute it from the native-library directory.
             useLegacyPackaging = true
             // cloudflared is a Go executable, not an ELF shared library; stripping it would
             // either fail or damage the binary the tunnel process runs.
@@ -323,8 +304,6 @@ tasks.named("preBuild").configure {
 }
 
 dependencies {
-    // The only two third-party runtime exceptions this project is allowed to ship.
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.compose.ui:ui")

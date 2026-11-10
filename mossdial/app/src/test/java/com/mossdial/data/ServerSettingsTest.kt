@@ -126,6 +126,55 @@ class ServerSettingsTest {
     }
 
     @Test
+    fun persistsThePerformanceEnvelopeAndItsLimits() {
+        val values = mutableMapOf<String, Any>()
+        val settings = ServerSettings(FakePreferenceStore(values))
+
+        assertEquals(ServerSettingsRules.DEFAULT_CONNECTIONS, settings.maxConnections)
+        assertEquals(ServerSettingsRules.DEFAULT_WORKERS, settings.workerThreads)
+        assertEquals(ServerSettingsRules.DEFAULT_REQUEST_TIMEOUT_MILLIS, settings.requestTimeoutMillis)
+        assertEquals(ServerSettingsRules.DEFAULT_WRITE_TIMEOUT_MILLIS, settings.writeTimeoutMillis)
+        assertEquals(ServerSettingsRules.DEFAULT_RATE_LIMIT, settings.rateLimitRequests)
+        assertEquals(
+            ServerSettingsRules.DEFAULT_BODY_LIMIT_MEGABYTES.toLong(),
+            settings.backendMaxBodyBytes / ServerSettingsRules.BYTES_PER_MEGABYTE
+        )
+        assertTrue(settings.enableGzip)
+
+        settings.maxConnections = 0
+        settings.workerThreads = 999
+        settings.requestTimeoutMillis = 1
+        settings.writeTimeoutMillis = 999_999
+        settings.rateLimitRequests = -5
+        settings.enableGzip = false
+        settings.backendMaxBodyBytes = (ServerSettingsRules.MAX_BODY_LIMIT_MEGABYTES + 1L) *
+            ServerSettingsRules.BYTES_PER_MEGABYTE
+
+        assertEquals(ServerSettingsRules.MIN_CONNECTIONS, settings.maxConnections)
+        assertEquals(ServerSettingsRules.MAX_WORKERS, settings.workerThreads)
+        assertEquals(ServerSettingsRules.MIN_TIMEOUT_MILLIS, settings.requestTimeoutMillis)
+        assertEquals(ServerSettingsRules.MAX_TIMEOUT_MILLIS, settings.writeTimeoutMillis)
+        assertEquals(ServerSettingsRules.MIN_RATE_LIMIT, settings.rateLimitRequests)
+        assertFalse(settings.enableGzip)
+        assertEquals(
+            ServerSettingsRules.MAX_BODY_LIMIT_MEGABYTES.toLong(),
+            settings.backendMaxBodyBytes / ServerSettingsRules.BYTES_PER_MEGABYTE
+        )
+
+        val reopened = ServerSettings(FakePreferenceStore(values))
+        assertEquals(ServerSettingsRules.MIN_CONNECTIONS, reopened.maxConnections)
+        assertEquals(ServerSettingsRules.MAX_WORKERS, reopened.workerThreads)
+        assertEquals(ServerSettingsRules.MIN_TIMEOUT_MILLIS, reopened.requestTimeoutMillis)
+        assertEquals(ServerSettingsRules.MAX_TIMEOUT_MILLIS, reopened.writeTimeoutMillis)
+        assertEquals(ServerSettingsRules.MIN_RATE_LIMIT, reopened.rateLimitRequests)
+        assertFalse(reopened.enableGzip)
+        assertEquals(
+            ServerSettingsRules.MAX_BODY_LIMIT_MEGABYTES.toLong(),
+            reopened.backendMaxBodyBytes / ServerSettingsRules.BYTES_PER_MEGABYTE
+        )
+    }
+
+    @Test
     fun theDesiredRunningIntentIsSeparateFromAutoStartAndSurvivesAReopen() {
         val values = mutableMapOf<String, Any>()
         val settings = ServerSettings(FakePreferenceStore(values))

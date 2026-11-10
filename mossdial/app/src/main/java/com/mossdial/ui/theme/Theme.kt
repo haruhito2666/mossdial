@@ -63,10 +63,10 @@ val LocalStatusColors: ProvidableCompositionLocal<StatusColors> =
     staticCompositionLocalOf { MossdialStatusColors }
 
 private val MossdialLightColors = lightColorScheme(
-    // The brand green with black on it: the primary button is the light green surface carrying
-    // black text, which is the palette's own pair rather than an inversion chosen per call site.
-    primary = Green,
-    onPrimary = Ink,
+    // The darker green keeps text, icons and control states readable on white. Primary buttons
+    // keep the brighter brand green with ink text in the shared button component.
+    primary = GreenDark,
+    onPrimary = Surface,
     primaryContainer = GreenContainer,
     onPrimaryContainer = Ink,
 

@@ -32,6 +32,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.mossdial.ui.theme.Control
+import com.mossdial.ui.theme.Green
+import com.mossdial.ui.theme.Ink
 import com.mossdial.ui.theme.Spacing
 
 /**
@@ -282,6 +284,7 @@ fun PrimaryButton(
         modifier = modifier.defaultMinSize(minHeight = ButtonHeight),
         enabled = enabled,
         shape = ButtonShape,
+        colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Ink),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
     ) {
         content()
